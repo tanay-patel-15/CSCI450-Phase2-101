@@ -8,9 +8,9 @@ This project is a command-line tool that evaluates machine learning models hoste
 It computes a set of metrics (ramp-up time, bus factor, license, etc.) and outputs results in JSON format.
 
 ## Team Members
-Evan Henderson
-Jazmin Pulido
-Ethan Dolder
+Tanay Patel
+David Burns
+Duke Victor
 
 ## Requirements
 - Python 3.9+
