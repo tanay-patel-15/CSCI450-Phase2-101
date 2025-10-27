@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+import sys
+import subprocess
+from src.cli import main
+
+if len(sys.argv) < 2:
+    sys.exit("Usage: ./run [install|test|URL_FILE]")
+
+CMD = sys.argv[1]
+
+if CMD == "install":
+    subprocess.run([sys.executable, "-m", "pip", "install", "--user", "-r", "requirements.txt"], check=True)
+
+elif CMD == "test":
+    import json, os
+
+    # Run coverage on pytest
+    subprocess.run([sys.executable, "-m", "coverage", "run", "-m", "pytest"], check=False)
+    subprocess.run([sys.executable, "-m", "coverage", "json", "-o", "coverage.json"], check=False)
+
+    # Count tests passed
+    pytest_result = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "--disable-warnings"],
+        capture_output=True,
+        text=True
+    )
+
+    passed = total = 0
+    for line in pytest_result.stdout.strip().splitlines():
+        if "passed" in line or "failed" in line:
+            try:
+                total = int(line.split()[0])
+                if "passed" in line:
+                    passed = total
+            except:
+                pass
+
+    # Read coverage
+    coverage = 0
+    if os.path.exists("coverage.json"):
+        with open("coverage.json") as f:
+            cov_report = json.load(f)
+            coverage = int(cov_report["totals"]["percent_covered"])
+
+    print(f"{passed}/{total} test cases passed. {coverage}% line coverage achieved.")
+    if passed < total or coverage < 80:
+        sys.exit(1)
+    else:
+        sys.exit(0)
+
+else:
+    main(CMD)
