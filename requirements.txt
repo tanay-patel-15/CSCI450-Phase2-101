@@ -1,3 +1,9 @@
 requests
 pytest
 pytest-cov
+fastapi
+uvicorn [standard]
+boto3
+python-multipart
+pytest-asyncio
+httpx
