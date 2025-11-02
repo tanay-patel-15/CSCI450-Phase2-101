@@ -24,9 +24,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run tests
-        run: |
-          export PYTHONPATH=src
-          pytest tests --maxfail=1 --disable-warnings -q
+        run: PYTHONPATH=$PWD/src pytest tests --maxfail=1 --disable-warnings -q
 
       - name: Deploy to AWS Lambda via SAM
         env:
