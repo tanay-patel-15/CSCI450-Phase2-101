@@ -1,25 +1,22 @@
-import boto3
-from botocore.exceptions import ClientError
+from fastapi import FastAPI, UploadFile, File
+from metrics import compute_metrics_for_model  # relative import, src is PYTHONPATH
 
-s3_client = boto3.client('s3', region_name='us-east-1')
-dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
-models_table = dynamodb.Table('Models')
-BUCKET_NAME = "model-registry-artifacts"
+app = FastAPI(title="Trustworthy Model Registry")
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+@app.post("/ingest")
+async def ingest(url: str):
+    metrics = compute_metrics_for_model(url)
+    return metrics
 
 @app.post("/upload")
 async def upload(file: UploadFile = File(...)):
     content = await file.read()
-    
-    # Upload to S3
-    s3_client.put_object(Bucket=BUCKET_NAME, Key=file.filename, Body=content)
-    
-    # Store metadata in DynamoDB
-    models_table.put_item(Item={
-        "model_name": file.filename,
-        "size": len(content),
-        "status": "uploaded"
-    })
-    
+    # TODO: save to S3 + add metadata to DynamoDB
     return {"filename": file.filename, "size": len(content)}
+
 
 
