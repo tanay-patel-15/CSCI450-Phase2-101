@@ -1,5 +1,5 @@
 from fastapi import FastAPI, UploadFile, File
-from .metrics import compute_metrics_for_model  # relative import, src is PYTHONPATH
+from src.metrics import compute_metrics_for_model  # relative import, src is PYTHONPATH
 import boto3
 import os
 
