@@ -3,7 +3,7 @@ name: Python CI/CD Deploy
 on:
   push:
     branches:
-      - main  # or 'master' if your branch is named so
+      - main
 
 jobs:
   build-and-deploy:
@@ -16,7 +16,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: '3.10.14'
 
       - name: Install dependencies
         run: |
