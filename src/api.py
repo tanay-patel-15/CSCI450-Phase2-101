@@ -55,6 +55,9 @@ async def get_model(model_id: str):
     except Exception as e:
         return {"error": str(e)}
 
+from mangum import Mangum
+
+handler = Mangum(app)
 
 
 
