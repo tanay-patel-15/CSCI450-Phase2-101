@@ -26,7 +26,7 @@ jobs:
       - name: Run tests
         run: |
           export PYTHONPATH=src
-          pytest tests --maxfails=1 --disable-warnings -q
+          pytest tests --maxfail=1 --disable-warnings -q
 
       - name: Deploy to AWS Lambda via SAM
         env:
