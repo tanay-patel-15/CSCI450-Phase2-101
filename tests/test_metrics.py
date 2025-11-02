@@ -1,5 +1,5 @@
 import pytest
-from src.metrics import compute_metrics_for_model
+from metrics import compute_metrics_for_model
 
 # --- Basic Functionality ---
 def test_metrics_returns_dict():
