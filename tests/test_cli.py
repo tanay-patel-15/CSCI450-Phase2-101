@@ -1,6 +1,6 @@
 import json
 import pytest
-from src.cli import main
+from cli import main
 
 # --- Valid Model URL ---
 def test_cli_outputs_json_for_model(tmp_path, capsys):
