@@ -6,7 +6,7 @@ import os
 s3_client = boto3.client("s3")
 dynamodb = boto3.resource("dynamodb")
 bucket_name = os.environ.get("project-models-group102")
-models_table = dynamodb.Table(os.environ.get("models"))
+models_table = dynamodb.Table(os.environ.get("MODELS_TABLE"))
 
 
 app = FastAPI(title="Trustworthy Model Registry")
