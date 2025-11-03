@@ -57,7 +57,7 @@ async def get_model(model_id: str):
 
 from mangum import Mangum
 
-handler = Mangum(app)
+lambda_handler = Mangum(app)
 
 
 
