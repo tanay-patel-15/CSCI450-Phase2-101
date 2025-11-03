@@ -45,4 +45,4 @@ jobs:
             --s3-bucket project-models-group102 \
             --capabilities CAPABILITY_IAM \
             --no-confirm-changeset \
-            --resolve-s
+            --resolve-s3
