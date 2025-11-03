@@ -42,7 +42,6 @@ jobs:
           sam build --use-container --template template.yml
           sam deploy \
             --stack-name model-registry \
-            --s3-bucket project-models-group102 \
             --capabilities CAPABILITY_IAM \
             --no-confirm-changeset \
             --resolve-s3
