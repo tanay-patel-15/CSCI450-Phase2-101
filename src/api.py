@@ -1,5 +1,5 @@
-from fastapi import FastAPI, UploadFile, File, APIRouter, Query, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, UploadFile, File, Query, HTTPException
+from fastapi.responses import StreamingResponse, FileResponse
 from src.metrics import compute_metrics_for_model  # relative import, src is PYTHONPATH
 import boto3
 import os
@@ -13,7 +13,6 @@ BUCKET_NAME = os.environ.get("BUCKET_NAME", "project-models-group102")
 MODELS_TABLE = os.environ.get("MODELS_TABLE", "models")
 
 models_table = dynamodb.Table(MODELS_TABLE)
-router = APIRouter()
 
 app = FastAPI(title="Trustworthy Model Registry")
 
@@ -56,35 +55,44 @@ async def get_model(model_id: str):
     except Exception as e:
         return {"error": str(e)}
 
-@router.get("/models")
-def list_models(search: str = Query(None, description="Regex filter for model name")):
-    try:
-        response = models_table.scan() # Get all items
-        models = response.get("Items", [])
-    
-        if search:
-            pattern = re.compile(search)
-            models = [m for m in models if pattern.search(m.get("model_name", ""))]
-        return {"models": models}
-    except Exception as e:
-        return {"error": str(e)}
+@app.get("/models")
+def list_models(search: str = Query(None, description="Regex to filter models by name")):
+    """
+    List all models stored in DynamoDB (optionally filter by regex on model_id).
+    """
+    table = dynamodb.Table(MODELS_TABLE)
 
-@router.get("/download/{model_id}")
+    # Scan DynamoDB (can be paginated if many items)
+    response = table.scan()
+    models = response.get("Items", [])
+
+    # Optional regex filter
+    if search:
+        pattern = re.compile(search)
+        models = [m for m in models if pattern.search(m.get("model_id", ""))]
+
+    return {"models": models}
+
+@app.get("/download/{model_id}")
 def download_model(model_id: str):
-    # Retrieve metadata from DynamoDB to check if model is non-sensitive
+    """
+    Download a model file from S3.
+    """
     try:
-        response = models_table.get_item(Key={"id": model_id})
-        model = response.get("Item")
-        if not model:
-            raise HTTPException(status_code=404, detail="Model not found")
-        if model.get("sensitive", False):
-            raise HTTPException(status_code=403, detail="Model is sensitive")
-        
-        file_key = model.get("s3_key")
-        obj = s3_client.get_object(Bucket=BUCKET_NAME, Key=file_key)
-        return StreamingResponse(obj['Body'], media_type="application/zip")
-    except ClientError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # Create a temporary local path for the file
+        tmp_file_path = f"/tmp/{model_id}"
+
+        # Download the model from S3
+        s3_client.download_file(BUCKET_NAME, model_id, tmp_file_path)
+
+        # Return the file as a streaming response
+        return FileResponse(tmp_file_path, filename=model_id)
+
+    except s3_client.exceptions.NoSuchKey:
+        raise HTTPException(status_code=404, detail="Model not found")
+    except Exception as e:
+        # Catch other errors (permission, network, etc.)
+        raise HTTPException(status_code=500, detail=f"Error downloading model: {str(e)}")
 
 from mangum import Mangum
 
