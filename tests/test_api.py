@@ -11,7 +11,8 @@ client = TestClient(app)
 # Mock data for DynamoDB
 mock_models = [
     {"id": "1", "model_name": "resnet50", "sensitive": False},
-    {"id": "2", "model_name": "bert-base", "sensitive": True}
+    {"id": "2", "model_name": "bert-base", "sensitive": True},
+    {"id": "3", "model_name": "resnet101", "sensitive": False},
 ]
 
 @pytest.mark.asyncio
