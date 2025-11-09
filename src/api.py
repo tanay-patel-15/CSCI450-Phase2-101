@@ -1,18 +1,19 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, APIRouter, Query, HTTPException
+from fastapi.responses import StreamingResponse
 from src.metrics import compute_metrics_for_model  # relative import, src is PYTHONPATH
 import boto3
 import os
+from botocore.exceptions import ClientError
+import re
+import io
 
 s3_client = boto3.client("s3")
 dynamodb = boto3.resource("dynamodb")
 BUCKET_NAME = os.environ.get("BUCKET_NAME", "project-models-group102")
 MODELS_TABLE = os.environ.get("MODELS_TABLE", "models")
 
-s3_client = boto3.client("s3")
-dynamodb = boto3.resource("dynamodb")
 models_table = dynamodb.Table(MODELS_TABLE)
-
-
+router = APIRouter()
 
 app = FastAPI(title="Trustworthy Model Registry")
 
@@ -54,6 +55,36 @@ async def get_model(model_id: str):
             return {"error": f"Model '{model_id}' not found"}
     except Exception as e:
         return {"error": str(e)}
+
+@router.get("/models")
+def list_models(search: str = Query(None, description="Regex filter for model name")):
+    try:
+        response = models_table.scan() # Get all items
+        models = response.get("Items", [])
+    
+        if search:
+            pattern = re.compile(search)
+            models = [m for m in models if pattern.search(m.get("model_name", ""))]
+        return {"models": models}
+    except Exception as e:
+        return {"error": str(e)}
+
+@router.get("/download/{model_id}")
+def download_model(model_id: str):
+    # Retrieve metadata from DynamoDB to check if model is non-sensitive
+    try:
+        response = models_table.get_item(Key={"id": model_id})
+        model = response.get("Item")
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+        if model.get("sensitive", False):
+            raise HTTPException(status_code=403, detail="Model is sensitive")
+        
+        file_key = model.get("s3_key")
+        obj = s3_client.get_object(Bucket=BUCKET_NAME, Key=file_key)
+        return StreamingResponse(obj['Body'], media_type="application/zip")
+    except ClientError as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 from mangum import Mangum
 
