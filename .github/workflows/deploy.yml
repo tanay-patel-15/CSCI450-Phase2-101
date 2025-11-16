@@ -53,5 +53,6 @@ jobs:
       - name: Run Auth Tests
         run: |
           export PYTHONPATH=$PWD:$PWD/src
+          export AWS_DEFAULT_REGION=${{ secrets.AWS_DEFAULT_REGION }}
           pip install pytest moto
           pytest -q
