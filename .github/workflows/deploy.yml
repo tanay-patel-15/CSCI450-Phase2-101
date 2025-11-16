@@ -52,5 +52,6 @@ jobs:
 
       - name: Run Auth Tests
         run: |
+          export PYTHONPATH=$PWD:$PWD/src
           pip install pytest moto
           pytest -q
