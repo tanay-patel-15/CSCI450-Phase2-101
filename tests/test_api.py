@@ -50,8 +50,9 @@ def test_list_all_models(existing_model):
 
 def test_list_models_with_search(existing_model):
     # Use part of the model_id as regex
+    token = make_jwt("viewer")
     search_str = existing_model["model_id"][:5]
-    response = client.get(f"/models?search={search_str}")
+    response = client.get(f"/models?search={search_str}", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200
     models = response.json().get("models", [])
     assert any(search_str in m["model_id"] for m in models)
@@ -59,14 +60,14 @@ def test_list_models_with_search(existing_model):
 
 def test_download_model(existing_model):
     model_id = existing_model["model_id"]
-
+    token = make_jwt("viewer")
     # Ensure the model exists in S3 before testing download
     try:
         s3.head_object(Bucket=BUCKET_NAME, Key=model_id)
     except s3.exceptions.ClientError:
         pytest.skip(f"Model {model_id} not found in S3. Skipping download test.")
 
-    response = client.get(f"/download/{model_id}")
+    response = client.get(f"/download/{model_id}", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200
     assert response.headers["content-disposition"].startswith("attachment")
     assert response.content  # Ensure some data is returned
