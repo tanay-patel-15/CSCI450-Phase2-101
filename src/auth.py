@@ -6,10 +6,15 @@ import os
 
 router = APIRouter()
 
-ddb = boto3.resource("dynamodb").Table(os.getenv("USERS_TABLE"))
+def get_user_table():
+    table_name = os.environ.get("USERS_TABLE")
+    if not table_name:
+        raise RuntimeError("Environment variable USERS_TABLE not set")
+    return boto3.resource("dynamodb").Table(table_name)
 
 @router.post("/register")
 def register(email: str, password: str, role: str = "viewer"):
+    ddb = get_user_table()
     hashed = hash_password(password)
 
     try:
@@ -27,6 +32,7 @@ def register(email: str, password: str, role: str = "viewer"):
     
 @router.post("/login")
 def login(email: str, password: str):
+    ddb = get_user_table()
     user = ddb.get_item(Key={"email": email}).get("Item")
     if not user:
         raise HTTPException(401, "Invalid credentials")
