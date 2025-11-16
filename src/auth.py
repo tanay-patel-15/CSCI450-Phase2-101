@@ -6,7 +6,7 @@ import os
 
 router = APIRouter()
 
-ddb = boto3.resource("dynamodb").Table(os.getenv("USER_TABLE"))
+ddb = boto3.resource("dynamodb").Table(os.getenv("USERS_TABLE"))
 
 @router.post("/register")
 def register(email: str, password: str, role: str = "viewer"):
