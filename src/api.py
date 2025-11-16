@@ -7,6 +7,7 @@ from botocore.exceptions import ClientError
 import re
 import io
 from src.auth_deps import require_role
+from src.auth import router as auth_router
 
 s3_client = boto3.client("s3")
 dynamodb = boto3.resource("dynamodb")
@@ -16,6 +17,7 @@ MODELS_TABLE = os.environ.get("MODELS_TABLE", "models")
 models_table = dynamodb.Table(MODELS_TABLE)
 
 app = FastAPI(title="Trustworthy Model Registry")
+app.include_router(auth_router)
 
 @app.get("/health")
 async def health():
