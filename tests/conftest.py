@@ -1,6 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
-from api import app
+from src.api import app
 import boto3
 import os
 
