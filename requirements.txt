@@ -8,3 +8,6 @@ python-multipart
 pytest-asyncio
 httpx
 mangum
+passlib[bcrypt]
+python-jose
+moto[boto3]

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Query, HTTPException
+from fastapi import FastAPI, UploadFile, File, Query, HTTPException, Depends
 from fastapi.responses import StreamingResponse, FileResponse
 from src.metrics import compute_metrics_for_model  # relative import, src is PYTHONPATH
 import boto3
@@ -6,6 +6,7 @@ import os
 from botocore.exceptions import ClientError
 import re
 import io
+from src.auth_deps import require_role
 
 s3_client = boto3.client("s3")
 dynamodb = boto3.resource("dynamodb")
@@ -26,7 +27,7 @@ async def ingest(url: str):
     return metrics
 
 @app.post("/upload")
-async def upload(file: UploadFile = File(...)):
+async def upload(file: UploadFile = File(...), user=Depends(require_role("admin", "uploader"))):
     content = await file.read()
     # Upload to S3
     s3_client.put_object(Bucket=BUCKET_NAME, Key=file.filename, Body=content)
@@ -43,7 +44,7 @@ async def upload(file: UploadFile = File(...)):
     return {"filename": file.filename, "size": len(content)}
 
 @app.get("/models/{model_id}")
-async def get_model(model_id: str):
+async def get_model(model_id: str, user=Depends(require_role("admin", "uploader", "viewer"))):
     """Fetch a model's metadata from DynamoDB by ID."""
     try:
         response = models_table.get_item(Key={"model_id": model_id})
@@ -56,7 +57,7 @@ async def get_model(model_id: str):
         return {"error": str(e)}
 
 @app.get("/models")
-def list_models(search: str = Query(None, description="Regex to filter models by name")):
+def list_models(search: str = Query(None, description="Regex to filter models by name"), user=Depends(require_role("admin", "uploader", "viewer"))):
     """
     List all models stored in DynamoDB (optionally filter by regex on model_id).
     """
@@ -74,7 +75,7 @@ def list_models(search: str = Query(None, description="Regex to filter models by
     return {"models": models}
 
 @app.get("/download/{model_id}")
-def download_model(model_id: str):
+def download_model(model_id: str, user=Depends(require_role("admin", "uploader", "viewer"))):
     """
     Download a model file from S3.
     """
