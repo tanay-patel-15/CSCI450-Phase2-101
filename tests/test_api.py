@@ -4,6 +4,7 @@ from httpx._transports.asgi import ASGITransport  # <- use this
 from api import app  # PYTHONPATH points to src
 from fastapi.testclient import TestClient
 from fastapi import FastAPI
+from tests.utils import make_jwt
 import os
 import boto3
 
@@ -39,7 +40,8 @@ def existing_model():
 
 
 def test_list_all_models(existing_model):
-    response = client.get("/models")
+    token = make_jwt("viewer")
+    response = client.get("/models", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200
     models = response.json().get("models", [])
     assert len(models) >= 1  # At least one model must exist
