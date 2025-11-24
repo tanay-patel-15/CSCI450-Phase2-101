@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from datetime import datetime
 from botocore.exceptions import ClientError
 from api import app
-from auth_deps import make_jwt
+from tests.utils import make_jwt
 import boto3
 
 BUCKET_NAME = os.environ.get("BUCKET_NAME", "project-models-group102")
