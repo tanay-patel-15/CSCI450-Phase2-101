@@ -11,7 +11,7 @@ import boto3
 BUCKET_NAME = os.environ.get("BUCKET_NAME", "project-models-group102")
 MODELS_TABLE = os.environ.get("MODELS_TABLE", "models")
 SECURITY_HOOK_URL = os.environ.get("SECURITY_HOOK_URL")
-MAX_DOWNLOAD_SIZE_BYTES = 10 * 1024 * 1024
+MAX_DOWNLOAD_SIZE_BYTES = int(os.environ.get("MAX_DOWNLOAD_SIZE_BYTES", "524288000"))
 
 s3 = boto3.client("s3")
 dynamodb = boto3.resource("dynamodb")
