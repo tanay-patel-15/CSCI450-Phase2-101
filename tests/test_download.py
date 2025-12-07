@@ -94,7 +94,7 @@ def test_security_hook_called(monkeypatch, test_sensitive_model_item, test_sensi
             status_code = 200
         return FakeResponse()
     
-    monkeypatch.setattr("requests.post", "post", fake_post)
+    monkeypatch.setattr(requests, "post", fake_post)
     headers = get_auth_headers(role="admin")
     response = client.get(f"/download/{test_sensitive_model_item['model_id']}", headers=headers)
     assert called.get("model_id") == test_sensitive_model_item["model_id"]
@@ -109,7 +109,7 @@ def test_download_sensitive_model_admin(monkeypatch, test_sensitive_model_item, 
             status_code = 200
         return FakeResponse()
     
-    monkeypatch.setattr("requests.post", "post", fake_post)
+    monkeypatch.setattr(requests, "post", fake_post)
     headers = get_auth_headers(role="admin")
     response = client.get(f"/download/{test_sensitive_model_item['model_id']}", headers=headers)
     assert response.status_code == 200
@@ -127,7 +127,7 @@ def test_download_sensitive_model_viewer_forbidden(monkeypatch, test_sensitive_m
             status_code = 200
         return FakeResponse()
     
-    monkeypatch.setattr("requests.post", "post", fake_post)
+    monkeypatch.setattr(requests, "post", fake_post)
     headers = get_auth_headers(role="viewer")
     response = client.get(f"/download/{test_sensitive_model_item['model_id']}", headers=headers)
     assert response.status_code == 403
