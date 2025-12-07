@@ -89,11 +89,11 @@ def test_download_missing_model():
     assert response.status_code == 404
 
 def test_download_file_too_large(test_model_item):
-    key = f"test/{test_model_item['model_id']}.zip"
+    key = test_model_item['model_id']
     large_data = b"x" * (MAX_DOWNLOAD_SIZE_BYTES + 1)
     s3.put_object(Bucket=BUCKET_NAME, Key=key, Body=large_data)
     headers = get_auth_headers(role="admin")
-    response = client.get(f"/download/{test_model_item['model_id']}", headers=headers)
+    response = client.get(f"/download/{key}", headers=headers)
     assert response.status_code == 413
     s3.delete_object(Bucket=BUCKET_NAME, Key=key)
 
