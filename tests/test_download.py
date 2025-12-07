@@ -1,6 +1,7 @@
 import pytest
 import os
 import httpx
+from httpx import AsyncClient
 from fastapi.testclient import TestClient
 from datetime import datetime
 from botocore.exceptions import ClientError
@@ -96,7 +97,8 @@ async def test_security_hook_called(monkeypatch, test_sensitive_model_item, test
     
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
     headers = get_auth_headers(role="admin")
-    client.get(f"/download/{test_sensitive_model_item['model_id']}", headers=headers)
+    async with AsyncClient(app=app, base_url="http://test") as ac:
+        response = await ac.get(f"/download/{test_sensitive_model_item['model_id']}", headers=headers)
     assert called.get("model_id") == test_sensitive_model_item["model_id"]
     assert called.get("sensitive") is True
 
@@ -112,7 +114,8 @@ async def test_download_sensitive_model_admin(monkeypatch, test_sensitive_model_
     
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
     headers = get_auth_headers(role="admin")
-    response = client.get(f"/download/{test_sensitive_model_item['model_id']}", headers=headers)
+    async with AsyncClient(app=app, base_url="http://test") as ac:
+        response = await ac.get(f"/download/{test_sensitive_model_item['model_id']}", headers=headers)
     assert response.status_code == 200
     assert response.headers["content-disposition"].startswith("attachment")
     assert response.content == b"Sensitive test data"
@@ -131,7 +134,8 @@ async def test_download_sensitive_model_viewer_forbidden(monkeypatch, test_sensi
     
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
     headers = get_auth_headers(role="viewer")
-    response = client.get(f"/download/{test_sensitive_model_item['model_id']}", headers=headers)
+    async with AsyncClient(app=app, base_url="http://test") as ac:
+        response = await ac.get(f"/download/{test_sensitive_model_item['model_id']}", headers=headers)
     assert response.status_code == 403
     assert "restricted" in response.json()["detail"].lower()
     assert called.get("model_id") == test_sensitive_model_item["model_id"]
