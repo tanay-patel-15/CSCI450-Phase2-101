@@ -1,7 +1,6 @@
 import pytest
 import os
 import httpx
-from httpx import AsyncClient
 from fastapi.testclient import TestClient
 from datetime import datetime
 from botocore.exceptions import ClientError
@@ -85,11 +84,10 @@ def test_download_file_too_large(test_model_item):
     assert response.status_code == 413
     s3.delete_object(Bucket=BUCKET_NAME, Key=key)
 
-@pytest.mark.asyncio
-async def test_security_hook_called(monkeypatch, test_sensitive_model_item, test_sensitive_s3_file):
+def test_security_hook_called(monkeypatch, test_sensitive_model_item, test_sensitive_s3_file):
     called = {}
 
-    async def fake_post(self, url, json=None, timeout=None):
+    def fake_post(self, url, json=None, timeout=None):
         called.update(json)
         class FakeResponse:
             status_code = 200
@@ -97,16 +95,14 @@ async def test_security_hook_called(monkeypatch, test_sensitive_model_item, test
     
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
     headers = get_auth_headers(role="admin")
-    async with AsyncClient(app=app, base_url="http://test") as ac:
-        response = await ac.get(f"/download/{test_sensitive_model_item['model_id']}", headers=headers)
+    response = client.get(f"/download/{test_sensitive_model_item['model_id']}", headers=headers)
     assert called.get("model_id") == test_sensitive_model_item["model_id"]
     assert called.get("sensitive") is True
 
-@pytest.mark.asyncio
-async def test_download_sensitive_model_admin(monkeypatch, test_sensitive_model_item, test_sensitive_s3_file):
+def test_download_sensitive_model_admin(monkeypatch, test_sensitive_model_item, test_sensitive_s3_file):
     called = {}
 
-    async def fake_post(self, url, json=None, timeout=None):
+    def fake_post(self, url, json=None, timeout=None):
         called.update(json)
         class FakeResponse:
             status_code = 200
@@ -114,19 +110,17 @@ async def test_download_sensitive_model_admin(monkeypatch, test_sensitive_model_
     
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
     headers = get_auth_headers(role="admin")
-    async with AsyncClient(app=app, base_url="http://test") as ac:
-        response = await ac.get(f"/download/{test_sensitive_model_item['model_id']}", headers=headers)
+    response = client.get(f"/download/{test_sensitive_model_item['model_id']}", headers=headers)
     assert response.status_code == 200
     assert response.headers["content-disposition"].startswith("attachment")
     assert response.content == b"Sensitive test data"
     assert called.get("model_id") == test_sensitive_model_item["model_id"]
     assert called.get("sensitive") is True
 
-@pytest.mark.asyncio
-async def test_download_sensitive_model_viewer_forbidden(monkeypatch, test_sensitive_model_item, test_sensitive_s3_file):
+def test_download_sensitive_model_viewer_forbidden(monkeypatch, test_sensitive_model_item, test_sensitive_s3_file):
     called = {}
 
-    async def fake_post(self, url, json=None, timeout=None):
+    def fake_post(self, url, json=None, timeout=None):
         called.update(json)
         class FakeResponse:
             status_code = 200
@@ -134,8 +128,7 @@ async def test_download_sensitive_model_viewer_forbidden(monkeypatch, test_sensi
     
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
     headers = get_auth_headers(role="viewer")
-    async with AsyncClient(app=app, base_url="http://test") as ac:
-        response = await ac.get(f"/download/{test_sensitive_model_item['model_id']}", headers=headers)
+    response = client.get(f"/download/{test_sensitive_model_item['model_id']}", headers=headers)
     assert response.status_code == 403
     assert "restricted" in response.json()["detail"].lower()
     assert called.get("model_id") == test_sensitive_model_item["model_id"]
