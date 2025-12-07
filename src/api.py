@@ -142,7 +142,10 @@ async def download_model(model_id: str, request: Request, user=Depends(require_r
     if not item:
         raise HTTPException(status_code=404, detail=f"Model '{model_id}' not found")
 
-    is_sensitive = bool(item.get("is_sensitive", False))
+    is_sensitive = bool(
+        item.get("is_sensitive")
+        or item.get("sensitive")
+        or False)
 
     # If sensitive, enforce stricter RBAC: require admin OR uploader with explicit permission.
     # Our require_role already allowed viewer/uploader/admin; use payload to check role
