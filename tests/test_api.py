@@ -33,7 +33,12 @@ def existing_model():
     """
     table = dynamodb.Table(MODELS_TABLE)
     response = table.scan(Limit=1)  # Get at least one model
-    items = response.get("Items", [])
+    items = [
+        item for item in response.get("Items", []) 
+        if "model_id" in item
+        and "sensitive" in item
+        and isinstance(item["sensitive"], bool)
+    ]
     if not items:
         pytest.skip("No models found in DynamoDB for testing.")
     return items[0]  # return the first model
