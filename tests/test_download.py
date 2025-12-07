@@ -88,7 +88,7 @@ def test_download_file_too_large(test_model_item):
 async def test_security_hook_called(monkeypatch, test_sensitive_model_item, test_sensitive_s3_file):
     called = {}
 
-    def fake_post(self, url, json=None, timeout=None):
+    async def fake_post(self, url, json=None, timeout=None):
         called.update(json)
         class FakeResponse:
             status_code = 200
@@ -104,14 +104,13 @@ async def test_security_hook_called(monkeypatch, test_sensitive_model_item, test
 async def test_download_sensitive_model_admin(monkeypatch, test_sensitive_model_item, test_sensitive_s3_file):
     called = {}
 
-    def fake_post(self, url, json=None, timeout=None):
+    async def fake_post(self, url, json=None, timeout=None):
         called.update(json)
         class FakeResponse:
             status_code = 200
         return FakeResponse()
     
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
-
     headers = get_auth_headers(role="admin")
     response = client.get(f"/download/{test_sensitive_model_item['model_id']}", headers=headers)
     assert response.status_code == 200
@@ -124,7 +123,7 @@ async def test_download_sensitive_model_admin(monkeypatch, test_sensitive_model_
 async def test_download_sensitive_model_viewer_forbidden(monkeypatch, test_sensitive_model_item, test_sensitive_s3_file):
     called = {}
 
-    def fake_post(self, url, json=None, timeout=None):
+    async def fake_post(self, url, json=None, timeout=None):
         called.update(json)
         class FakeResponse:
             status_code = 200
