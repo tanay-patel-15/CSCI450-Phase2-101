@@ -7,6 +7,7 @@ from botocore.exceptions import ClientError
 from api import app
 from tests.utils import make_jwt
 import boto3
+import requests
 
 BUCKET_NAME = os.environ.get("BUCKET_NAME", "project-models-group102")
 MODELS_TABLE = os.environ.get("MODELS_TABLE", "models")
