@@ -254,6 +254,3 @@ async def download_model(model_id: str, request: Request, user=Depends(require_r
 from mangum import Mangum
 
 lambda_handler = Mangum(app)
-
-
-
