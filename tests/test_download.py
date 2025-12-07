@@ -41,14 +41,14 @@ def test_sensitive_model_item():
     models_table.delete_item(Key={"model_id": item["model_id"]})
 
 @pytest.fixture
-def test_s3_file():
+def test_s3_file(test_model_item):
     key = test_model_item["model_id"]
     s3.put_object(Bucket=BUCKET_NAME, Key=key, Body=b"Test data")
     yield key
     s3.delete_object(Bucket=BUCKET_NAME, Key=key)
 
 @pytest.fixture
-def test_sensitive_s3_file():
+def test_sensitive_s3_file(test_sensitive_model_item):
     key = test_sensitive_model_item["model_id"]
     s3.put_object(Bucket=BUCKET_NAME, Key=key, Body=b"Sensitive test data")
     yield key
@@ -93,7 +93,7 @@ def test_download_file_too_large(test_model_item):
     large_data = b"x" * (MAX_DOWNLOAD_SIZE_BYTES + 1)
     s3.put_object(Bucket=BUCKET_NAME, Key=key, Body=large_data)
     headers = get_auth_headers(role="admin")
-    response = client.get(f"/download{test_model_item['model_id']}", headers=headers)
+    response = client.get(f"/download/{test_model_item['model_id']}", headers=headers)
     assert response.status_code == 413
     s3.delete_object(Bucket=BUCKET_NAME, Key=key)
 
