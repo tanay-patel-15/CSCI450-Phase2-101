@@ -34,6 +34,7 @@ jobs:
           export AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
           export AWS_DEFAULT_REGION=${{ secrets.AWS_DEFAULT_REGION }}
           export MODELS_TABLE=models
+          export SECURITY_HOOK_URL=https://test.hook.svc
           pytest tests --maxfail=1 --disable-warnings -q
 
       - name: Deploy to AWS Lambda via SAM
