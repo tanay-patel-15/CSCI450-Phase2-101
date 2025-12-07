@@ -101,7 +101,7 @@ def list_models(search: str = Query(None, description="Regex to filter models by
 
     return {"models": models}
 
-@app.get("/download/{model_id}")
+@app.get("/security-hook")
 async def run_security_hook(model_id: str, user_id: str):
     """
     Calls external Node security microservice and returns True/False
@@ -115,6 +115,8 @@ async def run_security_hook(model_id: str, user_id: str):
         
         data = response.json()
         return data.get("approved", False)
+    
+@app.get("/download/{model_id}")
 async def download_model(model_id: str, request: Request, user=Depends(require_role("admin", "uploader", "viewer"))):
     """
     Download a model file from S3. 
