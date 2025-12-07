@@ -164,12 +164,13 @@ async def download_model(model_id: str, request: Request, user=Depends(require_r
     # If model is sensitive, notify security node and restrict access to admin/uploader
     if is_sensitive:
         # Notify security node (best effort)
+        resp = None
         try:
             if SECURITY_HOOK_URL:
                 async with httpx.AsyncClient() as client:
                     resp = await client.post(SECURITY_HOOK_URL, json=hook_payload, timeout=5)
 
-            if resp.status_code != 200:
+            if SECURITY_HOOK_URL and not None and resp.status_code != 200:
                 raise HTTPException(
                     status_code=503,
                     detail="Security validation service unavailable"
