@@ -15,7 +15,7 @@ import logging
 import httpx
 
 START_TIME = time()
-SECURITY_HOOK_URL = os.environ.get("SECURITY_HOOK_URL")
+SECURITY_HOOK_URL = os.environ.get("SECURITY_HOOK_URL", "http://localhost/security-hook")
 MAX_DOWNLOAD_SIZE_BYTES = int(os.environ.get("MAX_DOWNLOAD_SIZE_BYTES", "524288000"))
 
 logger = logging.getLogger("api_logger")
