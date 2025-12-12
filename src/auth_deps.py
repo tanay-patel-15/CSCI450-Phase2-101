@@ -4,7 +4,7 @@ from jose import jwt
 import os
 
 auth_scheme = HTTPBearer()
-SECRET = os.getenv("JWT_SECRET", "dev_secret")
+SECRET = os.getenv("JWT_SECRET", "test-secret")
 
 def require_role(*roles):
     def wrapper(credentials=Depends(auth_scheme)):
