@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from datetime import datetime
 from botocore.exceptions import ClientError
 from api import app
-from tests.utils import make_jwt
+from tests.test_helpers import make_jwt
 import boto3
 import requests
 

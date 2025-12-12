@@ -1,7 +1,7 @@
 import sys
 import json
 from pathlib import Path
-from src.metrics import compute_metrics_for_model
+from metrics import compute_metrics_for_model
 
 def main(url_file: str) -> None:
     path = Path(url_file)

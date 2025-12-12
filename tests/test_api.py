@@ -4,7 +4,7 @@ from httpx._transports.asgi import ASGITransport  # <- use this
 from api import app  # PYTHONPATH points to src
 from fastapi.testclient import TestClient
 from fastapi import FastAPI
-from tests.utils import make_jwt
+from tests.test_helpers import make_jwt
 import os
 import boto3
 
