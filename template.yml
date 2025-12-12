@@ -2,20 +2,169 @@ AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: Trustworthy Model Registry
 
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 512
+    Runtime: python3.10
+
+Parameters:
+  ProjectBucketName:
+    Type: String
+    Default: project-models-group101
+  ModelsTableName:
+    Type: String
+    Default: models
+  UsersTableName:
+    Type: String
+    Default: users
+  AuditLogTableName:
+    Type: String
+    Default: audit_logs
+  JwtSecret:
+    Type: String
+    Description: The secret key for signing JWT tokens
+
 Resources:
+
+  ModelsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref ModelsTableName
+      AttributeDefinitions:
+        - AttributeName: model_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: model_id
+          KeyType: HASH
+      ProvisionedThroughput:
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
+
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref UsersTableName
+      AttributeDefinitions:
+        - AttributeName: email
+          AttributeType: S
+      KeySchema:
+        - AttributeName: email
+          KeyType: HASH
+      ProvisionedThroughput:
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
+
+  AuditLogTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref AuditLogTableName
+      AttributeDefinitions:
+        - AttributeName: timestamp
+          AttributeType: S
+        - AttributeName: event_type
+          AttributeType: S
+      KeySchema:
+        - AttributeName: timestamp
+          KeyType: HASH
+        - AttributeName: event_type
+          KeyType: RANGE
+      ProvisionedThroughput:
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
+
+  ModelFilesBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref ProjectBucketName
+
   ModelRegistryFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: model-registry
-      Handler: src.api.lambda_handler  # <- will need a Lambda handler
-      Runtime: python3.10
-      MemorySize: 128
-      Timeout: 30
+      Handler: src.api.lambda_handler
+      CodeUri: .
       Policies:
-        - AWSLambdaBasicExecutionRole
+        # Policy to allow DynamoDB access (READ/WRITE to all three tables)
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ModelsTableName
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTableName
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AuditLogTableName
+        # Policy to allow S3 access
+        - S3ReadWritePolicy:
+            BucketName: !Ref ProjectBucketName
+        - Statement:
+            Effect: Allow
+            Action:
+              - cloudwatch:PutMetricData
+            Resource: "*"
+      Environment:
+        Variables:
+          JWT_SECRET: !Ref JwtSecret
+          BUCKET_NAME: !Ref ProjectBucketName
+          MODELS_TABLE: !Ref ModelsTableName
+          USERS_TABLE: !Ref UsersTableName
+          AUDIT_TABLE: !Ref AuditLogTableName 
+          APP_VERSION: 1.0.0
+          # Existing variables
+          SECURITY_HOOK_URL: "http://your.security.hook.url" # Must be set
+          MAX_DOWNLOAD_SIZE_BYTES: 524288000
       Events:
         Api:
           Type: Api
           Properties:
-            Path: /{proxy+}
+            Path: /{proxy+} # Handles all API paths
             Method: ANY
+        Health:
+          Type: Api
+          Properties:
+            Path: /health
+            Method: GET
+        Audit:
+          Type: Api
+          Properties:
+            Path: /auditlog
+            Method: GET
+
+  ModelRegistryDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub "Model-Registry-Dashboard-${AWS::Region}"
+      DashboardBody: !Sub |
+        {
+            "widgets": [
+                {
+                    "type": "metric",
+                    "x": 0, "y": 0, "width": 12, "height": 6,
+                    "title": "Lambda Performance & Errors",
+                    "properties": {
+                        "metrics": [
+                            [ "AWS/Lambda", "Invocations", "FunctionName", "${ModelRegistryFunction}" ],
+                            [ "...", "Errors", "...", "...", { "stat": "Sum" } ],
+                            [ "...", "Duration", "...", "...", { "stat": "p90", "label": "Latency (p90)" } ]
+                        ],
+                        "view": "timeSeries",
+                        "stat": "Sum",
+                        "period": 300,
+                        "region": "${AWS::Region}"
+                    }
+                },
+                {
+                    "type": "metric",
+                    "x": 12, "y": 0, "width": 12, "height": 6,
+                    "title": "DynamoDB Audit Log Writes (Task 7.1)",
+                    "properties": {
+                        "metrics": [
+                            [ "AWS/DynamoDB", "SuccessfulRequestLatency", "TableName", "${AuditLogTableName}", { "stat": "p90" } ],
+                            [ ".", "ConsumedWriteCapacityUnits", ".", ".", { "stat": "Sum" } ]
+                        ],
+                        "view": "timeSeries",
+                        "stat": "Average",
+                        "period": 300,
+                        "region": "${AWS::Region}"
+                    }
+                }
+                # Add more widgets here for S3, other tables, and custom metrics (if implemented)
+            ]
+        }

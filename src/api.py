@@ -1,18 +1,20 @@
 from fastapi import FastAPI, UploadFile, File, Query, HTTPException, Depends, Request, status
 from fastapi.responses import StreamingResponse, FileResponse
-from src.metrics import compute_metrics_for_model  # relative import, src is PYTHONPATH
-import boto3
-import os
 from botocore.exceptions import ClientError
-import re
-import io
+from src.metrics import compute_metrics_for_model  # relative import, src is PYTHONPATH
 from src.auth_deps import require_role
 from src.auth import router as auth_router
+from datetime import datetime
+from time import time
+import boto3
+import os
+import re
+import io
 import requests
 import logging
-from datetime import datetime
 import httpx
 
+START_TIME = time()
 SECURITY_HOOK_URL = os.environ.get("SECURITY_HOOK_URL")
 MAX_DOWNLOAD_SIZE_BYTES = int(os.environ.get("MAX_DOWNLOAD_SIZE_BYTES", "524288000"))
 
@@ -22,15 +24,51 @@ s3_client = boto3.client("s3")
 dynamodb = boto3.resource("dynamodb")
 BUCKET_NAME = os.environ.get("BUCKET_NAME", "project-models-group102")
 MODELS_TABLE = os.environ.get("MODELS_TABLE", "models")
+AUDIT_TABLE = os.environ.get("AUDIT_TABLE", "audit_log")
 
 models_table = dynamodb.Table(MODELS_TABLE)
+audit_table = dynamodb.Table(AUDIT_TABLE)
 
 app = FastAPI(title="Trustworthy Model Registry")
 app.include_router(auth_router)
 
+def log_audit_event(event_type: str, user: dict, details: dict):
+    """Logs an audit event to the audit_table in DynamoDB"""
+    try:
+        iten = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "event_type": event_type,
+            "user_id": user.get("sub"),
+            "uder_role": user.get("role"),
+            "details": details
+        }
+        audit_table.put_item(Item=iten)
+    except Exception as e:
+        logger.error(f"Failed to write audit log for {event_type}: {e}")
+
+@app.get("/auditlog")
+async def get_audit_log(limit: int = 100, user=Depends(require_role("admin"))):
+    """Retrieves the most recent audit log entries (Admin only)"""
+    try:
+        response = audit_table.scan(Limit=limit)
+        return {"audit_events": response.get("Items", [])}
+    except Exception as e:
+        logger.exception("Audit log retrieval failed")
+        raise HTTPException(status_code=500, detail="Failed to retrieve audit log")
+
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    end_time = time()
+    uptime_seconds = int(end_time - START_TIME)
+
+    health_check_latency_ms = int((end_time - START_TIME) * 1000)
+
+    return {
+        "status": "ok",
+        "uptime_seconds": uptime_seconds,
+        "latency_ms": health_check_latency_ms,
+        "version": os.environ.get("APP_VERSION", "N/A")
+    }
 
 @app.post("/ingest")
 async def ingest(url: str, mark_sensitive: bool = False, user=Depends(require_role("admin", "uploader"))):
@@ -207,6 +245,11 @@ async def download_model(model_id: str, request: Request, user=Depends(require_r
                     call_security_hook(hook_payload, async_mode=False)
             except Exception:
                 logger.exception("Security hook failed during role block")
+            log_audit_event(
+                event_type="DOWNLOAD_FAILED",
+                user=user,
+                details={"model_id": model_id, "size": size, "sensitive": is_sensitive}
+            )
             raise HTTPException(status_code=403, detail="sensitive model - restricted to admin/uploader roles")
 
 
@@ -222,6 +265,11 @@ async def download_model(model_id: str, request: Request, user=Depends(require_r
                     requests.post(SECURITY_HOOK_URL, json=hook_payload, timeout=5)
             except Exception:
                 logger.exception("Failed to call security hook for blocked download")
+            log_audit_event(
+                event_type="DOWNLOAD_FAILED",
+                user=user,
+                details={"model_id": model_id, "size": size, "sensitive": is_sensitive}
+            )
             raise HTTPException(status_code=413, detail="File too large to download")
 
     except s3_client.exceptions.NoSuchKey:
@@ -232,6 +280,11 @@ async def download_model(model_id: str, request: Request, user=Depends(require_r
 
     # Stream object directly from S3 to response to avoid local temp file
     try:
+        log_audit_event(
+            event_type="DOWNLOAD_SUCCESS",
+            user=user,
+            details={"model_id": model_id, "size": size, "sensitive": is_sensitive}
+        )
         s3_obj = s3_client.get_object(Bucket=BUCKET_NAME, Key=model_id)
         body = s3_obj["Body"]
 
@@ -247,6 +300,7 @@ async def download_model(model_id: str, request: Request, user=Depends(require_r
         }
 
         return StreamingResponse(iterfile(), media_type="application/octet-stream", headers=headers)
+        
     except Exception:
         logger.exception("Error streaming S3 object")
         raise HTTPException(status_code=500, detail="Failed to retrieve model file from S3")
