@@ -9,7 +9,7 @@ import pytest
 from datetime import datetime
 from uuid import uuid4
 
-from models.artifact import (
+from src.models.artifact import (
     ArtifactType,
     ArtifactBase,
     ArtifactMetadata,
@@ -22,14 +22,14 @@ from models.artifact import (
     artifact_db_to_read,
     artifact_create_to_db,
 )
-from models.metrics import (
+from src.models.metrics import (
     Phase1Metrics,
     Phase2Metrics,
     ArtifactMetrics,
     SizeScore,
 )
-from models.lineage import LineageInfo
-from models.license import (
+from src.models.lineage import LineageInfo
+from src.models.license import (
     LicenseInfo,
     evaluate_license_compatibility,
     check_license_chain_compatibility,

@@ -24,7 +24,7 @@ from typing import Any, Optional
 import boto3
 from botocore.exceptions import ClientError
 
-from models.artifact import (
+from src.models.artifact import (
     ArtifactDB,
     ArtifactType,
     from_dynamodb_item,
@@ -407,7 +407,7 @@ class ArtifactRepository:
         """
         try:
             # Convert floats to Decimal for DynamoDB
-            from models.artifact import _convert_floats_to_decimal
+            from src.models.artifact import _convert_floats_to_decimal
             converted_value = _convert_floats_to_decimal(field_value)
             
             response = self.table.update_item(

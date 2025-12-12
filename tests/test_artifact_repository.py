@@ -10,13 +10,13 @@ import boto3
 from moto import mock_aws
 from decimal import Decimal
 
-from models.artifact import (
+from src.models.artifact import (
     ArtifactDB,
     ArtifactType,
     to_dynamodb_item,
     from_dynamodb_item,
 )
-from db.artifact_repository import (
+from src.db.artifact_repository import (
     ArtifactRepository,
     ArtifactNotFoundError,
     ArtifactAlreadyExistsError,

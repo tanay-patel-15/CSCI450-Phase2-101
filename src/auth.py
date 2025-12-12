@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from auth_utils import hash_password, verify_password
-from jwt_utils import create_token
+from src.auth_utils import hash_password, verify_password
+from src.jwt_utils import create_token
 import boto3
 import os
 

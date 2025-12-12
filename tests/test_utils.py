@@ -6,7 +6,7 @@ Tests versioning, cost computation, and lineage graph operations.
 
 import pytest
 
-from utils.versioning import (
+from src.utils.versioning import (
     matches_version_constraint,
     parse_version_constraint,
     compare_versions,
@@ -14,12 +14,12 @@ from utils.versioning import (
     filter_versions_by_constraint,
     VersionConstraintError,
 )
-from utils.cost import (
+from src.utils.cost import (
     compute_cost,
     compute_cost_from_artifact,
     estimate_total_lineage_cost,
 )
-from utils.lineage_graph import (
+from src.utils.lineage_graph import (
     validate_no_cycles,
     compute_lineage_graph,
     get_root_artifacts,

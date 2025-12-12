@@ -1,13 +1,13 @@
 from fastapi import FastAPI, UploadFile, File, Query, HTTPException, Depends, Request, status
 from fastapi.responses import StreamingResponse, FileResponse
-from metrics import compute_metrics_for_model  # relative import, src is PYTHONPATH
+from src.metrics import compute_metrics_for_model  # relative import, src is PYTHONPATH
 import boto3
 import os
 from botocore.exceptions import ClientError
 import re
 import io
-from auth_deps import require_role
-from auth import router as auth_router
+from src.auth_deps import require_role
+from src.auth import router as auth_router
 import requests
 import logging
 from datetime import datetime

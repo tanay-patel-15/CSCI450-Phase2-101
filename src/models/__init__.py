@@ -5,7 +5,7 @@ Exports all Pydantic models, enums, and data structures for the
 Trustworthy Model Registry Phase 2.
 """
 
-from models.artifact import (
+from src.models.artifact import (
     ArtifactType,
     ArtifactBase,
     ArtifactMetadata,
@@ -16,13 +16,13 @@ from models.artifact import (
     to_dynamodb_item,
     from_dynamodb_item,
 )
-from models.metrics import (
+from src.models.metrics import (
     Phase1Metrics,
     Phase2Metrics,
     ArtifactMetrics,
 )
-from models.lineage import LineageInfo
-from models.license import LicenseInfo, evaluate_license_compatibility
+from src.models.lineage import LineageInfo
+from src.models.license import LicenseInfo, evaluate_license_compatibility
 
 __all__ = [
     # Artifact models
