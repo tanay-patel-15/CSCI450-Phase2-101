@@ -248,7 +248,7 @@ async def download_model(model_id: str, request: Request, user=Depends(require_r
             log_audit_event(
                 event_type="DOWNLOAD_FAILED",
                 user=user,
-                details={"model_id": model_id, "size": size, "sensitive": is_sensitive}
+                details={"model_id": model_id, "sensitive": is_sensitive}
             )
             raise HTTPException(status_code=403, detail="sensitive model - restricted to admin/uploader roles")
 
