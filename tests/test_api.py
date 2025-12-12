@@ -14,7 +14,11 @@ async def test_health_endpoint():
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         r = await client.get("/health")
         assert r.status_code == 200
-        assert r.json() == {"status": "ok"}
+        response_data = r.json()
+        assert response_data["status"] == "ok"
+        assert response_data["version"] == "N/A"
+        assert isinstance(response_data["uptime_seconds"], int)
+        assert isinstance(response_data["latency_ms"], int)
 
 client = TestClient(app)
 MODELS_TABLE = os.environ.get("MODELS_TABLE", "models")
