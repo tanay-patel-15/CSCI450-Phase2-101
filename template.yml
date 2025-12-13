@@ -92,7 +92,7 @@ Resources:
         - DynamoDBCrudPolicy:
             TableName: !Ref AuditLogTableName
         # Policy to allow S3 access
-        - S3ReadWritePolicy:
+        - S3CrudPolicy:
             BucketName: !Ref ProjectBucketName
         - Statement:
             Effect: Allow
