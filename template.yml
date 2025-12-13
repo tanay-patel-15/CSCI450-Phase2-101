@@ -130,6 +130,7 @@ Resources:
   ModelRegistryDashboard:
     Type: AWS::CloudWatch::Dashboard
     Properties:
+      # Use StackName to ensure unique dashboard names per deployment
       DashboardName: !Sub "${AWS::StackName}-Dashboard"
       DashboardBody: !Sub |
         {
@@ -141,8 +142,8 @@ Resources:
                     "properties": {
                         "metrics": [
                             [ "AWS/Lambda", "Invocations", "FunctionName", "${ModelRegistryFunction}" ],
-                            [ "...", "Errors", "...", "...", { "stat": "Sum" } ],
-                            [ "...", "Duration", "...", "...", { "stat": "p90", "label": "Latency (p90)" } ]
+                            [ ".", "Errors", ".", ".", { "stat": "Sum" } ],
+                            [ ".", "Duration", ".", ".", { "stat": "p90", "label": "Latency (p90)" } ]
                         ],
                         "view": "timeSeries",
                         "stat": "Sum",
@@ -165,6 +166,5 @@ Resources:
                         "region": "${AWS::Region}"
                     }
                 }
-                # Add more widgets here for S3, other tables, and custom metrics (if implemented)
             ]
         }
