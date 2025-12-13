@@ -97,6 +97,11 @@ Resources:
         - Statement:
             Effect: Allow
             Action:
+              - s3:ListBucket
+            Resource: !Ref ProjectBucketName
+        - Statement:
+            Effect: Allow
+            Action:
               - cloudwatch:PutMetricData
             Resource: "*"
       Environment:
