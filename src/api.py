@@ -24,6 +24,9 @@ logger = logging.getLogger("api_logger")
 s3_client = boto3.client("s3")
 dynamodb = boto3.resource("dynamodb")
 BUCKET_NAME = os.environ.get("BUCKET_NAME", "project-models-group102")
+AUDIT_TABLE_NAME = os.environ.get("AUDIT_TABLE")
+if not AUDIT_TABLE_NAME:
+    raise EnvironmentError("AUDIT_TABLE environment variable not set")
 MODELS_TABLE = os.environ.get("MODELS_TABLE", "models")
 AUDIT_TABLE = os.environ.get("AUDIT_TABLE", "audit_log")
 
