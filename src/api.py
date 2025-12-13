@@ -50,27 +50,15 @@ def log_audit_event(event_type: str, user: dict, details: dict):
     except Exception as e:
         logger.error(f"Failed to write audit log for {event_type}: {e}")
 
-def clear_dynamodb_table(table_obj: str, partition_key: str, sort_key: str = None):
-    """Scans a DynamoDB table and deletes all items in batches of 25"""
-
-    RESERVED_KEYWORDS = ["timestamp", "key", "name", "value", "level"]
-
-    projection_parts = []
-    expression_attribute_names = {}
-
-    def get_safe_key_name(key_name, alias_prefix):
-        if key_name.lower() in RESERVED_KEYWORDS:
-            safe_alias = f"#{alias_prefix}"
-            expression_attribute_names[safe_alias] = key_name
-            return safe_alias
-        return key_name
-    pk_expression = get_safe_key_name(partition_key, "pk")
-    projection_parts.append(pk_expression)
-
+def clear_dynamodb_table(table_obj, partition_key: str, sort_key: str = None):
+    """
+    Scans a DynamoDB table and deletes all items using the provided keys.
+    Uses the projection expression directly to avoid alias complexity.
+    """
+    
+    projection_expression = partition_key
     if sort_key:
-        sk_expression = get_safe_key_name(sort_key, "sk")
-        projection_parts.append(sk_expression)
-    projection_expression = ", ".join(projection_parts)
+        projection_expression = f"{partition_key}, {sort_key}"
 
     keys_to_delete = []
     last_evaluated_key = None
@@ -78,35 +66,35 @@ def clear_dynamodb_table(table_obj: str, partition_key: str, sort_key: str = Non
     scan_kwargs = {
         "ProjectionExpression": projection_expression,
     }
-
-    if expression_attribute_names:
-        scan_kwargs["ExpressionAttributeNames"] = expression_attribute_names
-
+    
     while True:
         current_scan_kwargs = scan_kwargs.copy()
         if last_evaluated_key:
             current_scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
 
         response = table_obj.scan(**current_scan_kwargs)
-        keys_to_delete.extend(response.get("Items", []))
 
+        for item in response.get("Items", []):
+            key = {partition_key: item[partition_key]}
+            if sort_key:
+                key[sort_key] = item[sort_key]
+            keys_to_delete.append(key)
+        
         last_evaluated_key = response.get("LastEvaluatedKey")
         if not last_evaluated_key:
             break
+            
     if not keys_to_delete:
         logger.info(f"Table {table_obj.name} is already empty.")
         return
     
-    for item in keys_to_delete:
-        delete_key = {partition_key: item[partition_key]}
-        if sort_key:
-            delete_key[sort_key] = item[sort_key]
+    for delete_key in keys_to_delete:
         try:
             table_obj.delete_item(Key=delete_key)
         except Exception as e:
             logger.error(f"Failed to delete item {delete_key} from table {table_obj.name}: {e}")
+            
     logger.info(f"Successfully deleted {len(keys_to_delete)} items from table {table_obj.name}.")
-
 @app.post("/reset", status_code=200)
 async def reset_system(user=Depends(require_role("admin"))):
     """Completely clears all persistent storage (DynamoDB tables and S3 bucket). Admin only."""
