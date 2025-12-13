@@ -23,8 +23,47 @@ async def test_health_endpoint():
 client = TestClient(app)
 MODELS_TABLE = os.environ.get("MODELS_TABLE", "models")
 BUCKET_NAME = os.environ.get("BUCKET_NAME", "project-models-group102")
+AUDIT_TABLE = os.environ.get("AUDIT_TABLE", "audit_logs")
+USERS_TABLE = os.environ.get("USERS_TABLE", "users")
 dynamodb = boto3.resource("dynamodb")
 s3 = boto3.client("s3")
+
+#------------------------------
+# Test /reset route
+#------------------------------
+@pytest.mark.asyncio
+async def test_reset_emdpoint(existing_model):
+    """Tests the /reset endpoint to ensure proper functionality."""
+    s3_list_response = s3.list_objects_v2(Bucket=BUCKET_NAME, MaxKeys=1)
+    if s3_list_response.get("KeyCount", 0) == 0:
+        pytest.skip(f"S3 Bucket {BUCKET_NAME} is empty.")
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as async_client:
+        token = make_jwt("admin")
+        response = await async_client.post(
+            "/reset",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+    assert response.status_code == 200
+    assert response.json().get("message") == "Successfully reset the environment"
+
+    model_table = dynamodb.Table(MODELS_TABLE)
+    users_table = dynamodb.Table(USERS_TABLE)
+    audit_table = dynamodb.Table(AUDIT_TABLE)
+
+    model_scan = model_table.scan(Limit=1)
+    assert model_scan.get("Count", 0) == 0, f"Models Table {MODELS_TABLE} was not cleared by /reset."
+
+    users_scan = users_table.scan(Limit=1)
+    assert users_scan.get("Count", 0) == 0, f"Users Table {USERS_TABLE} was not cleared by /reset."
+
+    audit_scan = audit_table.scan(Limit=1)
+    assert audit_scan.get("Count", 0) == 0, f"Audit Table {AUDIT_TABLE} was not cleared by /reset."
+
+    s3_cleared_response = s3.list_objects_v2(Bucket=BUCKET_NAME, MaxKeys=1)
+    assert s3_cleared_response.get("KeyCount", 0) == 0, f"S3 Bucket {BUCKET_NAME} was not cleared by /reset."
+
 
 # ------------------------------
 # Test /models route
