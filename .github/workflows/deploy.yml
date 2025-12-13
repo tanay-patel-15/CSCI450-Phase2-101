@@ -43,17 +43,16 @@ jobs:
           AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
         run: |
           pip install aws-sam-cli
-          # Build locally
           sam build --template template.yml
-          # Deploy with NEW stack name and NEW resource names to avoid conflicts
+          # UPDATED TO V3 TO AVOID THE ROLLBACK_COMPLETE ERROR
           sam deploy \
-            --stack-name model-registry-v2 \
+            --stack-name model-registry-v3 \
             --capabilities CAPABILITY_IAM \
             --no-confirm-changeset \
             --resolve-s3 \
             --parameter-overrides \
               JwtSecret=${{ secrets.JWT_SECRET }} \
-              ProjectBucketName=project-models-group101-unique-v2 \
-              ModelsTableName=models-group101-unique-v2 \
-              UsersTableName=users-group101-unique-v2 \
-              AuditLogTableName=audit-logs-group101-unique-v2
+              ProjectBucketName=project-models-group101-unique-v3 \
+              ModelsTableName=models-group101-unique-v3 \
+              UsersTableName=users-group101-unique-v3 \
+              AuditLogTableName=audit-logs-group101-unique-v3
