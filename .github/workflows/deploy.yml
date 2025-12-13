@@ -33,7 +33,7 @@ jobs:
           export AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
           export AWS_DEFAULT_REGION=${{ secrets.AWS_DEFAULT_REGION }}
           export MODELS_TABLE=models-group101-unique-v3
-          export AUDIT_TABLE=audit_logs-group101-unique-v3
+          export AUDIT_TABLE=audit-logs-group101-unique-v3
           export USERS_TABLE=users-group101-unique-v3
           export BUCKET_NAME=project-models-group101-unique-v3
           export SECURITY_HOOK_URL=https://test.hook.svc
