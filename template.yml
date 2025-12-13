@@ -130,7 +130,7 @@ Resources:
   ModelRegistryDashboard:
     Type: AWS::CloudWatch::Dashboard
     Properties:
-      DashboardName: !Sub "Model-Registry-Dashboard-${AWS::Region}"
+      DashboardName: !Sub "${AWS::StackName}-Dashboard"
       DashboardBody: !Sub |
         {
             "widgets": [
