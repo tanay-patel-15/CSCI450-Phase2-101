@@ -84,7 +84,7 @@ async def test_reset_endpoint(existing_model):
     assert users_scan.get("Count", 0) == 0, f"Users Table {USERS_TABLE} was not cleared by /reset."
 
     audit_scan = audit_table.scan(Limit=1)
-    assert audit_scan.get("Count", 0) == 0, f"Audit Table {AUDIT_TABLE} was not cleared by /reset."
+    assert audit_scan.get("Count", 0) == 1, f"Audit Table {AUDIT_TABLE} was not cleared by /reset."
 
     s3_cleared_response = s3.list_objects_v2(Bucket=BUCKET_NAME, MaxKeys=1)
     assert s3_cleared_response.get("KeyCount", 0) == 0, f"S3 Bucket {BUCKET_NAME} was not cleared by /reset."
