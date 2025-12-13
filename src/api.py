@@ -36,50 +36,75 @@ app.include_router(auth_router)
 def log_audit_event(event_type: str, user: dict, details: dict):
     """Logs an audit event to the audit_table in DynamoDB"""
     try:
-        iten = {
+        item = {
             "timestamp": datetime.utcnow().isoformat(),
             "event_type": event_type,
             "user_id": user.get("sub"),
             "uder_role": user.get("role"),
             "details": details
         }
-        audit_table.put_item(Item=iten)
+        audit_table.put_item(Item=item)
     except Exception as e:
         logger.error(f"Failed to write audit log for {event_type}: {e}")
 
 def clear_dynamodb_table(table_obj: str, partition_key: str, sort_key: str = None):
     """Scans a DynamoDB table and deletes all items in batches of 25"""
 
-    keys_to_delete = []
-    projection = partition_key
+    RESERVED_KEYWORDS = ["timestamp", "key", "name", "value", "level"]
+
+    projection_parts = []
+    expression_attribute_names = {}
+
+    def get_safe_key_name(key_name, alias_prefix):
+        if key_name.lower() in RESERVED_KEYWORDS:
+            safe_alias = f"#{alias_prefix}"
+            expression_attribute_names[safe_alias] = key_name
+            return safe_alias
+        return key_name
+    pk_expression = get_safe_key_name(partition_key, "pk")
+    projection_parts.append(pk_expression)
+
     if sort_key:
-        projection += f", {sort_key}"
+        sk_expression = get_safe_key_name(sort_key, "sk")
+        projection_parts.append(sk_expression)
+    projection_expression = ", ".join(projection_parts)
 
-    response = table_obj.scan(ProjectionExpression=projection)
+    keys_to_delete = []
+    last_evaluated_key = None
 
-    while 'LastEvaluatedKey' in response:
-        response = table_obj.scan(ProjectionExpression=projection, ExclusiveStartKey=response['LastEvaluatedKey'])
-        keys_to_delete.extend(response.get('Items', []))
+    scan_kwargs = {
+        "ProjectionExpression": projection_expression,
+    }
 
+    if expression_attribute_names:
+        scan_kwargs["ExpressionAttributeNames"] = expression_attribute_names
+
+    while True:
+        current_scan_kwargs = scan_kwargs.copy()
+        if last_evaluated_key:
+            current_scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
+
+        response = table_obj.scan(**current_scan_kwargs)
+        keys_to_delete.extend(response.get("Items", []))
+
+        last_evaluated_key = response.get("LastEvaluatedKey")
+        if not last_evaluated_key:
+            break
     if not keys_to_delete:
         logger.info(f"Table {table_obj.name} is already empty.")
         return
     
-    dynamodb_client = boto3.client('dynamodb')
-
+    dynamodb_client = boto3.client("dynamodb")
     for i in range(0, len(keys_to_delete), 25):
         batch = keys_to_delete[i:i + 25]
         request_items = []
-
         for item in batch:
             key = {partition_key: item[partition_key]}
             if sort_key:
                 key[sort_key] = item[sort_key]
-
-            request_items.append({'DeleteRequest': {'Key': key}})
-
+            request_items.append({"DeleteRequest": {"Key": key}})
         dynamodb_client.batch_write_item(RequestItems={table_obj.name: request_items})
-    logger.info(f"Successfully deleted {len(keys_to_delete)} items from {table_obj.name}")
+    logger.info(f"Successfully deleted {len(keys_to_delete)} items from table {table_obj.name}.")
 
 @app.post("/reset", status_code=200)
 async def reset_system(user=Depends(require_role("admin"))):
