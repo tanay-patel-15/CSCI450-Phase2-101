@@ -30,7 +30,7 @@ models_table = dynamodb.Table(MODELS_TABLE)
 audit_table = dynamodb.Table(AUDIT_TABLE)
 
 app = FastAPI(title="Trustworthy Model Registry")
-app.include_router(auth_router)
+"""app.include_router(auth_router)"""
 
 def log_audit_event(event_type: str, user: dict, details: dict):
     """Logs an audit event to the audit_table in DynamoDB"""
