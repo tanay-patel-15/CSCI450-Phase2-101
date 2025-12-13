@@ -32,9 +32,10 @@ jobs:
           export AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
           export AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
           export AWS_DEFAULT_REGION=${{ secrets.AWS_DEFAULT_REGION }}
-          export MODELS_TABLE=models
-          export AUDIT_TABLE=audit_logs
-          export USERS_TABLE=users
+          export MODELS_TABLE=models-group101-unique-v3
+          export AUDIT_TABLE=audit_logs-group101-unique-v3
+          export USERS_TABLE=users-group101-unique-v3
+          export BUCKET_NAME=project-models-group101-unique-v3
           export SECURITY_HOOK_URL=https://test.hook.svc
           pytest tests --maxfail=1 --disable-warnings -q
 
