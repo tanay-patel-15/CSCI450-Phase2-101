@@ -94,7 +94,7 @@ async def test_reset_endpoint(existing_model):
 # Test /models route
 # ------------------------------
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function")
 def existing_model():
     """
     Retrieve an existing model from DynamoDB for testing.
