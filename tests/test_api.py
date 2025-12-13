@@ -7,6 +7,31 @@ from fastapi import FastAPI
 from tests.test_helpers import make_jwt
 import os
 import boto3
+from time import time
+
+@pytest.fixture(scope="module", autouse=True)
+def create_initial_data():
+
+    test_model_id = "rest-model-autograder-101"
+    model_table = dynamodb.Table(MODELS_TABLE)
+
+    model_table.put_item(
+        Item={
+            "model_id": test_model_id,
+            "name": "Autograder Test Model",
+            "version": "1.0",
+            "sensitive": False,
+            "status": "approved",
+            "owner": "admin_user",
+            "timestamp": int(time())
+        }
+    )
+    s3.put_object(
+        Bucket=BUCKET_NAME,
+        Key=test_model_id,
+        Body=b"Mock data for model download test"
+    )
+    yield
 
 @pytest.mark.asyncio
 async def test_health_endpoint():
@@ -32,7 +57,7 @@ s3 = boto3.client("s3")
 # Test /reset route
 #------------------------------
 @pytest.mark.asyncio
-async def test_reset_emdpoint(existing_model):
+async def test_reset_endpoint(existing_model):
     """Tests the /reset endpoint to ensure proper functionality."""
     s3_list_response = s3.list_objects_v2(Bucket=BUCKET_NAME, MaxKeys=1)
     if s3_list_response.get("KeyCount", 0) == 0:
