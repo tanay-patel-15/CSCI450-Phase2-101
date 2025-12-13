@@ -99,9 +99,9 @@ def clear_dynamodb_table(table_obj: str, partition_key: str, sort_key: str = Non
         batch = keys_to_delete[i:i + 25]
         request_items = []
         for item in batch:
-            key = {partition_key: item[partition_key]}
+            key = {"S": str(item[partition_key])}
             if sort_key:
-                key[sort_key] = item[sort_key]
+                key[sort_key] = {"S": str(item[sort_key])}
             request_items.append({"DeleteRequest": {"Key": key}})
         dynamodb_client.batch_write_item(RequestItems={table_obj.name: request_items})
     logger.info(f"Successfully deleted {len(keys_to_delete)} items from table {table_obj.name}.")
