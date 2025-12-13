@@ -126,7 +126,7 @@ async def reset_system(user=Depends(require_role("admin"))):
             user=user,
             details={"bucket": BUCKET_NAME, "tables": [MODELS_TABLE, AUDIT_TABLE]}
         )
-        return {"status": "ok", "message": "System successfully reset"}
+        return {"status": "ok", "message": "Successfully reset the environment"}
     except Exception as e:
         logger.exception("SYSTEM RESET FAILED")
         log_audit_event(
