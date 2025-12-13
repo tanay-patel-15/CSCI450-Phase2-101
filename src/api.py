@@ -6,6 +6,7 @@ from src.auth_deps import require_role
 from src.auth import router as auth_router
 from datetime import datetime
 from time import time
+from mangum import Mangum
 import boto3
 import os
 import re
@@ -31,6 +32,8 @@ audit_table = dynamodb.Table(AUDIT_TABLE)
 
 app = FastAPI(title="Trustworthy Model Registry")
 """app.include_router(auth_router)"""
+
+print(this_variable_does_not_exist)
 
 def log_audit_event(event_type: str, user: dict, details: dict):
     """Logs an audit event to the audit_table in DynamoDB"""
@@ -304,7 +307,5 @@ async def download_model(model_id: str, request: Request, user=Depends(require_r
     except Exception:
         logger.exception("Error streaming S3 object")
         raise HTTPException(status_code=500, detail="Failed to retrieve model file from S3")
-
-from mangum import Mangum
 
 lambda_handler = Mangum(app)
