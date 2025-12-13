@@ -98,7 +98,7 @@ Resources:
             Effect: Allow
             Action:
               - s3:ListBucket
-            Resource: !Ref ProjectBucketName
+            Resource: !GetAtt ModelFilesBucket.Arn
         - Statement:
             Effect: Allow
             Action:
