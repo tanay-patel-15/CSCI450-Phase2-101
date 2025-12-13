@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Query, HTTPException, Depends, Request, status
+from fastapi import FastAPI, UploadFile, File, Query, HTTPException, Depends, Request, status, APIRouter
 from fastapi.responses import StreamingResponse, FileResponse
 from botocore.exceptions import ClientError
 from src.metrics import compute_metrics_for_model  # relative import, src is PYTHONPATH
@@ -31,9 +31,7 @@ models_table = dynamodb.Table(MODELS_TABLE)
 audit_table = dynamodb.Table(AUDIT_TABLE)
 
 app = FastAPI(title="Trustworthy Model Registry")
-"""app.include_router(auth_router)"""
-
-print(this_variable_does_not_exist)
+app.include_router(auth_router)
 
 def log_audit_event(event_type: str, user: dict, details: dict):
     """Logs an audit event to the audit_table in DynamoDB"""
@@ -49,6 +47,71 @@ def log_audit_event(event_type: str, user: dict, details: dict):
     except Exception as e:
         logger.error(f"Failed to write audit log for {event_type}: {e}")
 
+def clear_dynamodb_table(table_obj: str, partition_key: str, sort_key: str = None):
+    """Scans a DynamoDB table and deletes all items in batches of 25"""
+
+    keys_to_delete = []
+    projection = partition_key
+    if sort_key:
+        projection += f", {sort_key}"
+
+    response = table_obj.scan(ProjectionExpression=projection)
+
+    while 'LastEvaluatedKey' in response:
+        response = table_obj.scan(ProjectionExpression=projection, ExclusiveStartKey=response['LastEvaluatedKey'])
+        keys_to_delete.extend(response.get('Items', []))
+
+    if not keys_to_delete:
+        logger.info(f"Table {table_obj.name} is already empty.")
+        return
+    
+    dynamodb_client = boto3.client('dynamodb')
+
+    for i in range(0, len(keys_to_delete), 25):
+        batch = keys_to_delete[i:i + 25]
+        request_items = []
+
+        for item in batch:
+            key = {partition_key: item[partition_key]}
+            if sort_key:
+                key[sort_key] = item[sort_key]
+
+            request_items.append({'DeleteRequest': {'Key': key}})
+
+        dynamodb_client.batch_write_item(RequestItems={table_obj.name: request_items})
+    logger.info(f"Successfully deleted {len(keys_to_delete)} items from {table_obj.name}")
+
+@app.post("/reset", status_code=200)
+async def reset_system(user=Depends(require_role("admin"))):
+    """Completely clears all persistent storage (DynamoDB tables and S3 bucket). Admin only."""
+
+    try:
+        clear_dynamodb_table(models_table, partition_key="model_id")
+        clear_dynamodb_table(audit_table, partition_key="timestamp", sort_key="event_type")
+
+        s3_resource = boto3.resource('s3')
+        bucket = s3_resource.Bucket(BUCKET_NAME)
+
+        bucket.objects.all().delete()
+        logger.info(f"Successfully cleared all objects from S3 bucket: {BUCKET_NAME}")
+
+        log_audit_event(
+            event_type="SYSTEM_RESET_SUCCESS",
+            user=user,
+            details={"bucket": BUCKET_NAME, "tables": [MODELS_TABLE, AUDIT_TABLE]}
+        )
+        return {"status": "ok", "message": "System successfully reset"}
+    except Exception as e:
+        logger.exception("SYSTEM RESET FAILED")
+        log_audit_event(
+            event_type="SYSTEM_RESET_FAILURE",
+            user=user,
+            details={"error": str(e)}
+        )
+        raise HTTPException(status_code=500, detail="System reset failed: {e}")
+    
+
+
 @app.get("/auditlog")
 async def get_audit_log(limit: int = 100, user=Depends(require_role("admin"))):
     """Retrieves the most recent audit log entries (Admin only)"""
@@ -58,6 +121,10 @@ async def get_audit_log(limit: int = 100, user=Depends(require_role("admin"))):
     except Exception as e:
         logger.exception("Audit log retrieval failed")
         raise HTTPException(status_code=500, detail="Failed to retrieve audit log")
+    
+
+
+
 
 @app.get("/health")
 async def health():
