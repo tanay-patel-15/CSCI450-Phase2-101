@@ -108,7 +108,28 @@ def existing_model():
         and isinstance(item["sensitive"], bool)
     ]
     if not items:
-        pytest.skip("No models found in DynamoDB for testing.")
+        test_model_id = "rest-model-recreated-2025"
+
+        table.put_item(
+            Item={
+                "model_id": test_model_id,
+                "name": "Recreated Test Model",
+                "version": "1.0",
+                "sensitive": False,
+                "status": "APPROVED",
+                "owner": "admin_user",
+                "timestamp": int(time())
+            }
+        )
+        s3.put_object(
+            Bucket=BUCKET_NAME,
+            Key=test_model_id,
+            Body=b"Mock data for recreated model download test"
+        )
+
+        response = table.get_item(Key={"model_id": test_model_id})
+        model = response["Item"]
+        return model
     return items[0]  # return the first model
 
 
