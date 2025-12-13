@@ -49,9 +49,5 @@ jobs:
             --capabilities CAPABILITY_IAM \
             --no-confirm-changeset \
             --resolve-s3 \
-            --parameter-overrides \
-              JwtSecret=${{ secrets.JWT_SECRET }} \
-              ProjectBucketName=project-models-group101-unique \
-              ModelsTableName=models-group101-unique \
-              UsersTableName=users-group101-unique \
-              AuditLogTableName=audit-logs-group101-unique
+            --parameter-overrides JwtSecret=${{ secrets.JWT_SECRET }}
+
