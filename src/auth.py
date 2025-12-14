@@ -45,11 +45,11 @@ if ENCODED_ADMIN_PASSWORD:
         DEFAULT_ADMIN_PASSWORD = base64.b64decode(ENCODED_ADMIN_PASSWORD).decode('utf-8')
         logger.info("Admin password successfully decoded from Base64")
     except Exception as e:
-        logger.error(f"Failed to Base64 decode ADMIN_PASSWORD_ENV. Using raw value. Error: {e}")
-        DEFAULT_ADMIN_PASSWORD = ENCODED_ADMIN_PASSWORD
+        logger.error(f"FATAL: Base64 decoding failed. Error: {e}")
+        DEFAULT_ADMIN_PASSWORD = None
 else:
-    logger.warning("ADMIN_PASSWORD_ENV not found in environment. Using hardcoded fallback")
-    DEFAULT_ADMIN_PASSWORD = "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;"
+    logger.warning(f"FATAL: {ADMIN_PASSWORD_ENV_KEY} is required but missing from environment!")
+    DEFAULT_ADMIN_PASSWORD = None
 
 def get_user_table():
     create_tables_if_missing()
