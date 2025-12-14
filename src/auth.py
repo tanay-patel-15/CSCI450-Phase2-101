@@ -95,5 +95,5 @@ def authenticate(body: AuthenticationRequest):
     # Create the token
     token = create_token({"sub": username, "role": user_item["role"]})
     
-    # CRITICAL FIX: Return as plain string, FastAPI will JSON-encode it
-    return f"bearer {token}"
+    # Return as JSON string per OpenAPI spec example: '"bearer ..."'
+    return JSONResponse(content=f"bearer {token}")

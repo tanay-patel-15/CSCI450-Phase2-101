@@ -7,12 +7,11 @@ logger.setLevel(logging.INFO)
 def hash_password(password: str) -> str:
     """
     Hashes a password using bcrypt.
-    Truncates to 60 characters (not bytes) to avoid bcrypt 72-byte limit issues.
+    Truncates to 72 bytes to match bcrypt's hard limit.
     """
     try:
-        # Truncate to 60 characters first, then encode
-        truncated = password[:75]
-        password_bytes = truncated.encode('utf-8')
+        # Encode first, then truncate to EXACTLY 72 bytes
+        password_bytes = password.encode('utf-8')[:72]
         
         # Generate salt and hash
         salt = bcrypt.gensalt()
@@ -27,12 +26,11 @@ def hash_password(password: str) -> str:
 def verify_password(password: str, hashed: str) -> bool:
     """
     Verifies a password against a bcrypt hash.
-    Uses same truncation logic as hashing.
+    Uses same 72-byte truncation as hashing.
     """
     try:
-        # Truncate to match hashing logic
-        truncated = password[:75]
-        password_bytes = truncated.encode('utf-8')
+        # Truncate to match hashing logic - EXACTLY 72 bytes
+        password_bytes = password.encode('utf-8')[:72]
         
         # Ensure hashed is bytes
         if isinstance(hashed, str):
