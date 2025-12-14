@@ -91,6 +91,12 @@ Resources:
             TableName: !Ref UsersTableName
         - DynamoDBCrudPolicy:
             TableName: !Ref AuditLogTableName
+        - Statement:
+            Effect: Allow
+            Action:
+              - dynamodb:ListTables
+              - dynamodb:CreateTable
+            Resource: "*"
         # Policy to allow S3 access
         - S3CrudPolicy:
             BucketName: !Ref ProjectBucketName
