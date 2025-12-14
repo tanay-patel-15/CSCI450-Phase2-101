@@ -3,10 +3,11 @@ from fastapi.testclient import TestClient
 from api import app
 import os
 import boto3
+import uuid
 
 client = TestClient(app)
 
-# Use the credentials that match your unconditional self-healing logic
+# Credentials matching the hardcoded values in your app
 TEST_ADMIN_EMAIL = "ece30861defaultadminuser" 
 TEST_ADMIN_PASSWORD = "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;"
 
@@ -17,34 +18,38 @@ db_users_table = dynamodb.Table(USERS_TABLE)
 
 @pytest.fixture(scope="module")
 def test_user_email():
-    return "test@a.com"
+    # FIX: Use a random email to prevent "User already exists" (400) errors
+    # caused by leftover data from previous runs.
+    return f"test_{uuid.uuid4()}@example.com"
 
 @pytest.fixture(scope="function", autouse=True)
 def cleanup_user(test_user_email):
-    # Remove test user before and after each test to avoid conflicts
+    # Attempt to remove test user before test
     try:
         db_users_table.delete_item(Key={"email": test_user_email})
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Warning: Setup cleanup failed: {e}")
+    
     yield
+    
+    # Attempt to remove test user after test
     try:
         db_users_table.delete_item(Key={"email": test_user_email})
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Warning: Teardown cleanup failed: {e}")
 
 def test_register_and_login(test_user_email):
     # Register
     r = client.post("/register", json={"email": test_user_email, "password": "secret"})
-    assert r.status_code == 200
+    assert r.status_code == 200, f"Register failed: {r.text}"
     assert r.json() == {"message": "registered"}
 
-    # Login - Ordinary users might use the same format, but let's assume
-    # checking for the "bearer" string is sufficient for now based on your API.
+    # Login
     r = client.put("/authenticate", json={
         "user": {"name": test_user_email, "is_admin": False},
         "secret": {"password": "secret"}
     })
-    assert r.status_code == 200
+    assert r.status_code == 200, f"Login failed: {r.text}"
     
     # FIX: Check for string response, not dictionary
     token_response = r.json()
@@ -53,10 +58,9 @@ def test_register_and_login(test_user_email):
 
 def test_default_admin_authenticate_flow():
     """
-    Test that the default admin can authenticate with correct credentials.
-    This test relies on the app's self-healing logic.
+    Test that the default admin can authenticate.
+    Relies on self-healing logic in src/auth.py.
     """
-    
     login_payload = {
         "user": {
             "name": TEST_ADMIN_EMAIL, 
@@ -76,9 +80,7 @@ def test_default_admin_authenticate_flow():
         
     assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
     
-    # FIX: The API Spec defines the response as a simple string, not a JSON object
+    # FIX: Spec defines response as a simple string "bearer <token>"
     token = response.json()
-    
-    # Assert it is a string and starts with 'bearer'
     assert isinstance(token, str), f"Expected string token, got {type(token)}"
-    assert token.lower().startswith("bearer "), f"Token should start with 'bearer', got: {token}"
+    assert token.lower().startswith("bearer ")
