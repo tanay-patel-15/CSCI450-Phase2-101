@@ -2,7 +2,7 @@ from jose import jwt
 from datetime import datetime, timedelta
 import os
 
-SECRET_KEY = os.getenv("JWT_SECRET", "dev_secret")
+SECRET_KEY = os.getenv("JWT_SECRET", "test-secret")
 ALGORITHM = "HS256"
 EXPIRE_MINUTES = 60
 
