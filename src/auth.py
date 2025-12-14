@@ -33,8 +33,11 @@ class RegisterRequest(BaseModel):
     password: str
     role: str = "viewer"
 
+from src.db_setup import create_tables_if_missing
+
 def get_user_table():
     # FIX 1: Added default "users" to match api.py and prevent 500 crashes
+    create_tables_if_missing() # Ensure table exists before we try to get it
     table_name = os.environ.get("USERS_TABLE", "users")
     return boto3.resource("dynamodb").Table(table_name)
 

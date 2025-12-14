@@ -62,8 +62,11 @@ class ArtifactRegEx(BaseModel):
 
 # --- Helper Functions ---
 
+from src.db_setup import create_tables_if_missing
+
 def initialize_default_admin():
     """Ensures a default admin user is present."""
+    create_tables_if_missing() # Ensure tables (especially users) exist
     try:
         response = users_table.get_item(Key={"email": DEFAULT_ADMIN_EMAIL})
         if response.get("Item"):
@@ -129,6 +132,7 @@ async def reset_system(user=Depends(require_role("admin"))):
     """Reset the registry to a system default state. (BASELINE)"""
     try:
         # Clear Tables
+        create_tables_if_missing() # Ensure they exist so we can clear them without 404
         clear_dynamodb_table(models_table, "model_id")
         clear_dynamodb_table(audit_table, "timestamp", "event_type")
         
