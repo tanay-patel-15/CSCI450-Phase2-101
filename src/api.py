@@ -35,9 +35,9 @@ DEFAULT_ADMIN_PASSWORD = "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE 
 logger = logging.getLogger("api_logger")
 logger.setLevel(logging.INFO)
 
-# --- PROOF OF UPDATE ---
-logger.info("--- DEPLOYMENT VERSION: FALLBACK SCAN & MEMORY SNAPSHOT ---")
-# -----------------------
+# --- DEPLOYMENT MARKER ---
+logger.info("--- DEPLOYMENT VERSION: LEAN & FAST (Blind Deletes + Omni-Regex) ---")
+# -------------------------
 
 # AWS Clients
 s3_client = boto3.client("s3")
@@ -93,7 +93,7 @@ def make_robust_request(operation_func, max_retries=10):
                 if i == max_retries - 1:
                     logger.error("Max retries exceeded for DynamoDB operation.")
                     raise
-                # Faster backoff to handle high-speed tests
+                # Fast jitter backoff
                 sleep_time = (0.05 * (2 ** i)) + (random.random() * 0.05)
                 time.sleep(sleep_time)
             else:
@@ -102,11 +102,10 @@ def make_robust_request(operation_func, max_retries=10):
 
 def scan_all_items(table):
     """
-    NUCLEAR OPTION: Retrieves ALL items from the table.
-    We rely on this 'Memory Snapshot' to bypass consistency and case-sensitivity issues.
+    Retrieves ALL items from the table with Strong Consistency.
+    Only used for Regex, Name Search, and Lineage.
     """
     items = []
-    # Force Strong Consistency
     scan_kwargs = {'ConsistentRead': True}
     
     try:
@@ -119,9 +118,8 @@ def scan_all_items(table):
             items.extend(response.get("Items", []))
             
     except Exception as e:
-        logger.error(f"Scan failed even after retries: {e}")
+        logger.error(f"Scan failed robustly: {e}")
         try:
-            # Last Resort: Eventual Consistency
             scan_kwargs['ConsistentRead'] = False
             if 'ExclusiveStartKey' in scan_kwargs:
                 del scan_kwargs['ExclusiveStartKey']
@@ -304,21 +302,19 @@ async def list_artifacts_regex(
         raise HTTPException(status_code=400, detail="Missing regex")
     
     try:
-        # FIX: Scan everything -> Filter in Python (Bypass DB limitations)
-        # FIX: IGNORECASE for test robustness
+        logger.info(f"DEBUG REGEX: Pattern='{body.regex}'")
         pattern = re.compile(body.regex, re.IGNORECASE)
         items = scan_all_items(models_table)
         
         results = []
         for item in items:
-            name = item.get("name", "")
-            url_str = item.get("url", "")
-            id_str = item.get("model_id", "")
+            # FIX: Search ANY string field in the item (Omni-Search)
+            # This covers name, url, id, license, etc.
+            item_dump = str(item)
             
-            # Search broadly across fields
-            if pattern.search(name) or pattern.search(url_str) or pattern.search(id_str):
+            if pattern.search(item_dump):
                  results.append({
-                    "name": name,
+                    "name": item.get("name"),
                     "id": item.get("model_id"),
                     "type": item.get("type", "model")
                 })
@@ -340,19 +336,16 @@ async def get_artifact_by_name(
     user=Depends(require_role("admin", "uploader", "viewer"))
 ):
     try:
-        # FIX: Scan everything -> Filter in Python to solve Case Sensitivity
+        # Keep scan here because filtering by name needs case-insensitivity
         items = scan_all_items(models_table)
         
         results = []
         for item in items:
-            # Exact Match
             if item.get("name") == name:
                 results.append(item)
-            # Case Insensitive Fallback
             elif item.get("name", "").lower() == name.lower():
                 results.append(item)
         
-        # Deduplicate
         seen = set()
         unique_results = []
         for item in results:
@@ -381,19 +374,12 @@ async def get_artifact(
     user=Depends(require_role("admin", "uploader", "viewer"))
 ):
     try:
-        # FIX: Hybrid Lookup (GetItem -> Fallback Scan)
+        # FIX: Reverted to Direct Lookup (Lean)
+        # Scan is too slow here.
         def get_op():
             return models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
         response = make_robust_request(get_op)
         item = response.get("Item") if response else None
-        
-        # Fallback Scan for "Ghost" Items
-        if not item:
-            all_items = scan_all_items(models_table)
-            for x in all_items:
-                if x.get("model_id") == id:
-                    item = x
-                    break
         
         if not item:
             raise HTTPException(status_code=404, detail="Artifact does not exist")
@@ -417,18 +403,10 @@ async def update_artifact(
     user=Depends(require_role("admin", "uploader"))
 ):
     try:
-        # Check existence via Get -> Scan
         def get_op():
             return models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
         existing = make_robust_request(get_op)
         item = existing.get("Item") if existing else None
-        
-        if not item:
-             all_items = scan_all_items(models_table)
-             for x in all_items:
-                 if x.get("model_id") == id:
-                     item = x
-                     break
         
         if not item:
             raise HTTPException(status_code=404, detail="Artifact does not exist")
@@ -466,25 +444,9 @@ async def delete_artifact(
     user=Depends(require_role("admin"))
 ):
     try:
-        # Verify existence via Get -> Scan before deleting
-        def get_op():
-            return models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
-        existing = make_robust_request(get_op)
-        
-        found = False
-        if existing and existing.get("Item"):
-            found = True
-        else:
-             # Fallback Scan
-             all_items = scan_all_items(models_table)
-             for x in all_items:
-                 if x.get("model_id") == id:
-                     found = True
-                     break
-        
-        if not found:
-             raise HTTPException(status_code=404, detail="Artifact does not exist")
-            
+        # FIX: Blind Delete (Zero Reads)
+        # We assume it exists and delete it.
+        # This saves 1 Read operation per Delete and avoids Throttling.
         make_robust_request(lambda: models_table.delete_item(Key={"model_id": id}))
         return {"message": "Artifact is deleted."}
     except HTTPException:
@@ -499,13 +461,6 @@ async def get_rating(id: str, user=Depends(require_role("admin", "uploader", "vi
             return models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
         response = make_robust_request(get_op)
         item = response.get("Item") if response else None
-        
-        if not item:
-            all_items = scan_all_items(models_table)
-            for x in all_items:
-                if x.get("model_id") == id:
-                    item = x
-                    break
         
         if not item:
             raise HTTPException(status_code=404, detail="Artifact does not exist")
@@ -556,8 +511,7 @@ async def get_lineage(
     user=Depends(require_role("admin", "uploader", "viewer"))
 ):
     try:
-        # FIX: Lineage "Snapshot"
-        # Fetch everything once to avoid N+1 recursion timeouts
+        # Keep Snapshot for Lineage (Necessary for graph traversal)
         all_items_list = scan_all_items(models_table)
         all_items_map = {item['model_id']: item for item in all_items_list}
         
@@ -578,7 +532,6 @@ async def get_lineage(
             if art:
                 nodes.append({"artifact_id": artifact_id, "name": art.get("name"), "source": source})
             else:
-                # Stub for missing node
                 nodes.append({"artifact_id": artifact_id, "name": f"artifact-{artifact_id}", "source": source})
         
         add_node(id, "registry")
@@ -605,18 +558,10 @@ async def check_license_compatibility(
     user=Depends(require_role("admin", "uploader", "viewer"))
 ):
     try:
-        # Get -> Fallback Scan
         def get_op():
             return models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
         response = make_robust_request(get_op)
         item = response.get("Item") if response else None
-        
-        if not item:
-             all_items = scan_all_items(models_table)
-             for x in all_items:
-                 if x.get("model_id") == id:
-                     item = x
-                     break
         
         if not item:
             raise HTTPException(status_code=404, detail="The artifact or GitHub project could not be found")
@@ -639,7 +584,7 @@ async def get_cost(
     user=Depends(require_role("admin", "uploader", "viewer"))
 ):
     try:
-        # Cost "Snapshot"
+        # Keep Snapshot for Cost (Recursive)
         all_items_list = scan_all_items(models_table)
         all_items_map = {item['model_id']: item for item in all_items_list}
         
