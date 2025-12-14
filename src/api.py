@@ -217,12 +217,7 @@ async def health():
 
 @app.get("/tracks")
 async def get_tracks():
-    return {
-        "plannedTracks": [
-            "Access control track",
-            "Access Control Track" # Add this capitalized version just to be safe
-        ]
-    }
+    return {"plannedTracks": ["Access control track"]}
 
 @app.delete("/reset")
 async def reset_system(user=Depends(require_role("admin"))):
