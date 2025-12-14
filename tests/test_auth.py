@@ -52,8 +52,16 @@ def test_default_admin_authenticate_flow():
     
     # 1. Define the cleartext payload locally to avoid global config issues
     login_payload = {
-        "username": TEST_ADMIN_EMAIL,
-        "password": TEST_ADMIN_PASSWORD  # Guaranteed to be a valid string
+        "user": {
+            # Use TEST_ADMIN_EMAIL for the 'name' field
+            "name": TEST_ADMIN_EMAIL, 
+            # You might need 'is_admin': True if your API requires it for this flow
+            # I will omit it for now, but be ready to add it if the 422 persists.
+        },
+        "secret": {
+            # Put the password inside the 'secret' field
+            "password": TEST_ADMIN_PASSWORD
+        }
     }
     
     # The first call should trigger self-healing if the user is missing
