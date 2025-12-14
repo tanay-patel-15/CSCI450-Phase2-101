@@ -104,4 +104,4 @@ def authenticate(body: AuthenticationRequest):
 
     token = create_token({"sub": username, "role": user_item["role"]})
     
-    return JSONResponse(content=f"bearer {token}")
+    return f"bearer {token}"
