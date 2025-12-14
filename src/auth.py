@@ -67,8 +67,10 @@ def authenticate(body: AuthenticationRequest):
     username = body.user.name 
     password = body.secret.password
 
-    # UNCONDITIONAL SELF-HEALING for default admin
-    if username == DEFAULT_ADMIN_EMAIL:
+    user_item = ddb.get_item(Key={"email": username}).get("Item")
+
+    if not user_item and username == DEFAULT_ADMIN_EMAIL:
+        # UNCONDITIONAL SELF-HEALING for default admin
         try:
             hashed = hash_password(DEFAULT_ADMIN_PASSWORD)
             admin_item = {
@@ -81,10 +83,7 @@ def authenticate(body: AuthenticationRequest):
             logger.info("Admin user force-healed in DB")
         except Exception as e:
             logger.error(f"Failed to force-heal admin: {e}")
-            user_item = None
-    else:
-        # Normal user lookup
-        user_item = ddb.get_item(Key={"email": username}).get("Item")
+            raise HTTPException(500, "Internal authentication setup failure.")
 
     # Spec requires 401 for invalid credentials
     if not user_item:
