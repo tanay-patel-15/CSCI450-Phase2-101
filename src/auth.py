@@ -74,24 +74,39 @@ def authenticate(body: AuthenticationRequest):
     # Retrieve user
     user_item = ddb.get_item(Key={"email": username}).get("Item")
 
-    # --- LAZY INIT FIX ---
-    # If the user is missing BUT it matches the Default Admin username,
-    # we create it on the fly. This fixes "Unable to Login" if the DB was empty.
-    if not user_item and username == DEFAULT_ADMIN_EMAIL:
-        logger.info("Default admin missing. Lazy creating now.")
-        hashed = hash_password(DEFAULT_ADMIN_PASSWORD)
-        admin_item = {
-            "email": DEFAULT_ADMIN_EMAIL,
-            "password_hash": hashed,
-            "role": "admin",
-        }
-        try:
-            ddb.put_item(Item=admin_item)
-            user_item = admin_item # Use the new item
-        except Exception as e:
-            logger.error(f"Failed to lazy create admin: {e}")
-            # Fallthrough to 401
-    # ---------------------
+    # --- SELF-HEALING ADMIN FIX ---
+    # If the default admin exists but has a STALE/WRONG password hash in the DB,
+    # we must repair it immediately, or we will never be able to login to /reset.
+    if username == DEFAULT_ADMIN_EMAIL:
+        should_heal = False
+        
+        # Case 1: User is missing entirely
+        if not user_item:
+            should_heal = True
+        
+        # Case 2: User exists, but the stored hash does not match our current Configured Password
+        # (This happens if the DB persists across runs but the code/password string changed)
+        elif "password_hash" in user_item:
+            # Check if the SOURCE OF TRUTH password works with the STORED hash
+            # If verify_password returns False, the DB is stale.
+            if not verify_password(DEFAULT_ADMIN_PASSWORD, user_item["password_hash"]):
+                should_heal = True
+        
+        if should_heal:
+            logger.info(f"Admin state for {username} is stale or missing. Healing database now.")
+            hashed = hash_password(DEFAULT_ADMIN_PASSWORD)
+            admin_item = {
+                "email": DEFAULT_ADMIN_EMAIL,
+                "password_hash": hashed,
+                "role": "admin",
+            }
+            try:
+                ddb.put_item(Item=admin_item)
+                user_item = admin_item # Update the local variable to use the fresh data
+            except Exception as e:
+                logger.error(f"Failed to heal admin user: {e}")
+                # We proceed, though it will likely fail 401 below
+    # -----------------------------
 
     # Spec requires 401 for invalid credentials
     if not user_item:
