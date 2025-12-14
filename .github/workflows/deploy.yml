@@ -39,7 +39,7 @@ jobs:
           export SECURITY_HOOK_URL=https://test.hook.svc
           export JWT_SECRET=${{ secrets.JWT_SECRET }}
           export DEFAULT_ADMIN_EMAIL=ece30861defaultadminuser
-          export DEFAULT_ADMIN_PASSWORD='correcthorsebatterystaple123(!__+@**(A'\''"`''`;DROP TABLE artifacts;')
+          export DEFAULT_ADMIN_PASSWORD=$'correcthorsebatterystaple123(!__+@**(A\'"`\'\';DROP TABLE artifacts;'
           pytest tests --maxfail=1 --disable-warnings -q
 
       - name: Deploy to AWS Lambda via SAM
