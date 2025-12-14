@@ -13,8 +13,8 @@ logger = logging.getLogger("auth_logger")
 logger.setLevel(logging.INFO)
 
 # --- Configuration (Matching Spec) ---
-DEFAULT_ADMIN_EMAIL = os.environ.get("DEFAULT_ADMIN_EMAIL", "ece30861defaultadminuser")
-DEFAULT_ADMIN_PASSWORD = os.environ.get("DEFAULT_ADMIN_PASSWORD","correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;")
+DEFAULT_ADMIN_EMAIL = "ece30861defaultadminuser"
+DEFAULT_ADMIN_PASSWORD = "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;"
 
 # --- Internal Models matching spec schemas ---
 
@@ -70,7 +70,7 @@ def authenticate(body: AuthenticationRequest):
     user_item = ddb.get_item(Key={"email": username}).get("Item")
 
     if not user_item and username == DEFAULT_ADMIN_EMAIL:
-        # UNCONDITIONAL SELF-HEALING for default admin
+        logger.info("Admin user not found. Performing self-healing.")
         try:
             hashed = hash_password(DEFAULT_ADMIN_PASSWORD)
             admin_item = {
