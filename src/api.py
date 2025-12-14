@@ -4,6 +4,7 @@ from botocore.exceptions import ClientError
 from src.metrics import compute_metrics_for_model  # relative import, src is PYTHONPATH
 from src.auth_deps import require_role
 from src.auth import router as auth_router
+from src.auth_utils import hash_password
 from datetime import datetime
 from time import time
 from mangum import Mangum
@@ -18,6 +19,8 @@ import httpx
 START_TIME = time()
 SECURITY_HOOK_URL = os.environ.get("SECURITY_HOOK_URL", "http://localhost/security-hook")
 MAX_DOWNLOAD_SIZE_BYTES = int(os.environ.get("MAX_DOWNLOAD_SIZE_BYTES", "524288000"))
+DEFAULT_ADMIN_EMAIL = os.environ.get("DEFAULT_ADMIN_EMAIL", "admin@test.com")
+DEFAULT_ADMIN_PASSWORD = os.environ.get("DEFAULT_ADMIN_PASSWORD", "password")
 
 logger = logging.getLogger("api_logger")
 
@@ -35,6 +38,35 @@ audit_table = dynamodb.Table(AUDIT_TABLE)
 
 app = FastAPI(title="Trustworthy Model Registry")
 app.include_router(auth_router)
+
+def initialize_default_admin():
+    """Ensures a default admin user is present in the USERS_TABLE."""
+
+    table_name = os.environ.get("USERS_TABLE")
+    if not table_name:
+        logger.error("USERS_TABLE environment variable not set. Cannot initialize admin.")
+        return 
+        
+    users_table = boto3.resource("dynamodb").Table(table_name)
+
+    response = users_table.get_item(Key={"email": DEFAULT_ADMIN_EMAIL})
+    if response.get("Item"):
+        logger.info(f"Default admin user {DEFAULT_ADMIN_EMAIL} already exists.")
+        return
+
+    try:
+        hashed = hash_password(DEFAULT_ADMIN_PASSWORD)
+        
+        users_table.put_item(
+            Item={
+                "email": DEFAULT_ADMIN_EMAIL,
+                "password_hash": hashed,
+                "role": "admin",
+            }
+        )
+        logger.info(f"Successfully initialized default admin user: {DEFAULT_ADMIN_EMAIL}")
+    except Exception as e:
+        logger.error(f"Failed to initialize default admin user: {e}")
 
 def log_audit_event(event_type: str, user: dict, details: dict):
     """Logs an audit event to the audit_table in DynamoDB"""
@@ -123,7 +155,7 @@ def clear_dynamodb_table(table_obj, partition_key: str, sort_key: str = None):
     logger.info(f"Successfully deleted {len(keys_to_delete)} items from table {table_obj.name}.")
 
 @app.post("/reset", status_code=200)
-async def reset_system(user):
+async def reset_system(user=Depends(require_role("admin"))):
     """Completely clears all persistent storage (DynamoDB tables and S3 bucket). Admin only."""
 
     try:
@@ -148,6 +180,7 @@ async def reset_system(user):
                 break
         logger.info(f"Successfully completed comprehensive S3 cleanup for bucket: {BUCKET_NAME}")
 
+        initialize_default_admin()
 
         log_audit_event(
             event_type="SYSTEM_RESET_SUCCESS",
