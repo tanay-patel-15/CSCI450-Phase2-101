@@ -222,13 +222,22 @@ async def create_artifact(
         logger.exception("Ingest failed")
         raise HTTPException(status_code=500, detail=str(e))
 
+# - Implementing logic for query filtering and pagination
+
 @app.post("/artifacts")
 async def list_artifacts(
     query_list: List[ArtifactQuery], 
+    request: Request,
     user=Depends(require_role("admin", "uploader", "viewer"))
 ):
     if not query_list:
         raise HTTPException(status_code=400, detail="Missing query")
+    
+    # Pagination: Get offset from Query Param (as per spec)
+    # Spec says offset is in "query", not body.
+    offset_param = request.query_params.get("offset")
+    start_index = int(offset_param) if offset_param and offset_param.isdigit() else 0
+    PAGE_SIZE = 10
     
     query = query_list[0]
     
@@ -236,15 +245,48 @@ async def list_artifacts(
         response = models_table.scan()
         items = response.get("Items", [])
         
-        results = []
+        filtered_results = []
         for item in items:
-            if query.name == "*" or query.name == item.get("name"):
-                results.append({
+            # 1. Filter by Name (or Wildcard)
+            name_match = (query.name == "*" or query.name == item.get("name"))
+            
+            # 2. Filter by Type (CRITICAL FIX)
+            type_match = True
+            if query.types:
+                # If types are provided, the item's type MUST be in the list
+                if item.get("type") not in query.types:
+                    type_match = False
+            
+            if name_match and type_match:
+                filtered_results.append({
                     "name": item.get("name"),
                     "id": item.get("model_id"),
                     "type": item.get("type", "model")
                 })
-        return results 
+        
+        # 3. Apply Pagination
+        # Sort by ID to ensure consistent paging
+        filtered_results.sort(key=lambda x: x["id"])
+        
+        paginated_results = filtered_results[start_index : start_index + PAGE_SIZE]
+        
+        # Determine next offset
+        next_offset = start_index + PAGE_SIZE
+        if next_offset >= len(filtered_results):
+            # End of list
+            next_offset = None 
+            
+        # Return results (FastAPI handles the JSON list response)
+        # Note: Spec defines returning just the list, headers handle the offset.
+        # We need to set the custom header 'offset' for the next page.
+        content = paginated_results
+        
+        headers = {}
+        if next_offset is not None:
+            headers["offset"] = str(next_offset)
+            
+        return JSONResponse(content=content, headers=headers)
+
     except Exception as e:
         logger.error(f"List artifacts failed: {e}")
         raise HTTPException(status_code=500, detail="Database error")
@@ -265,7 +307,11 @@ async def list_artifacts_regex(
         results = []
         for item in items:
             name = item.get("name", "")
-            if pattern.search(name):
+            # Spec implies searching READMEs too. 
+            # We don't have full READMEs, but let's check the URL as a proxy for "description"
+            url_str = item.get("url", "")
+            
+            if pattern.search(name) or pattern.search(url_str):
                  results.append({
                     "name": name,
                     "id": item.get("model_id"),
