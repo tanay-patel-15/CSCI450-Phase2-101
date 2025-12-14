@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from src.auth_utils import hash_password, verify_password
 from src.jwt_utils import create_token
@@ -12,8 +13,8 @@ logger = logging.getLogger("auth_logger")
 logger.setLevel(logging.INFO)
 
 # --- Configuration (Matching Spec) ---
-DEFAULT_ADMIN_EMAIL = os.environ.get("DEFAULT_ADMIN_EMAIL", "ece30861defaultadminuser")
-DEFAULT_ADMIN_PASSWORD = os.environ.get("DEFAULT_ADMIN_PASSWORD", "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;")
+DEFAULT_ADMIN_EMAIL = os.environ.get("ece30861defaultadminuser", "DEFAULT_ADMIN_EMAIL")
+DEFAULT_ADMIN_PASSWORD = os.environ.get("correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;","DEFAULT_ADMIN_PASSWORD")
 
 # --- Internal Models matching spec schemas ---
 
