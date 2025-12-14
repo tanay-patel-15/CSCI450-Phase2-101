@@ -8,10 +8,12 @@ import os
 import re
 import logging
 import time
+import random
 from datetime import datetime
 from uuid import uuid4
 import base64
 from decimal import Decimal
+from botocore.exceptions import ClientError
 
 # Internal imports
 from src.metrics import compute_metrics_for_model
@@ -79,32 +81,54 @@ def convert_floats_to_decimal(obj):
         return [convert_floats_to_decimal(i) for i in obj]
     return obj
 
+def make_robust_request(operation_func, max_retries=5):
+    """
+    Executes a Boto3 operation with exponential backoff for throttling errors.
+    """
+    for i in range(max_retries):
+        try:
+            return operation_func()
+        except ClientError as e:
+            error_code = e.response['Error']['Code']
+            if error_code in ['ProvisionedThroughputExceededException', 'ThrottlingException']:
+                if i == max_retries - 1:
+                    logger.error("Max retries exceeded for DynamoDB operation.")
+                    raise
+                # Exponential backoff
+                sleep_time = (0.1 * (2 ** i)) + (random.random() * 0.05)
+                logger.warning(f"Throttled by DynamoDB. Retrying in {sleep_time:.2f}s...")
+                time.sleep(sleep_time)
+            else:
+                raise
+    return None
+
 def scan_all_items(table):
     """
-    Helper to strictly retrieve ALL items with Strong Consistency.
-    Handles pagination robustly.
+    Helper to strictly retrieve ALL items with Strong Consistency and Retries.
     """
     items = []
+    
+    def initial_scan():
+        return table.scan(ConsistentRead=True)
+    
     try:
-        # First scan
-        response = table.scan(ConsistentRead=True)
+        response = make_robust_request(initial_scan)
         items.extend(response.get("Items", []))
         
-        # Pagination loop
         while 'LastEvaluatedKey' in response:
-            # Sleep briefly to avoid "ProvisionedThroughputExceeded" loops during heavy tests
-            time.sleep(0.1) 
-            response = table.scan(
-                ExclusiveStartKey=response['LastEvaluatedKey'],
-                ConsistentRead=True
-            )
+            lek = response['LastEvaluatedKey']
+            def next_scan():
+                return table.scan(
+                    ExclusiveStartKey=lek,
+                    ConsistentRead=True
+                )
+            response = make_robust_request(next_scan)
             items.extend(response.get("Items", []))
+            
     except Exception as e:
-        logger.error(f"Scan failed: {e}")
-        # If consistent scan fails (throttling), fallback to eventual consistency
-        # This is better than returning nothing/crashing.
+        logger.error(f"Scan failed even after retries: {e}")
         try:
-            logger.info("Fallback to Eventual Consistency scan")
+            # Fallback to Eventual Consistency
             response = table.scan(ConsistentRead=False)
             items.extend(response.get("Items", []))
         except:
@@ -171,10 +195,8 @@ async def get_tracks():
 
 @app.delete("/reset")
 async def reset_system(user=Depends(require_role("admin"))):
-    """Reset the registry to a system default state."""
     try:
         create_tables_if_missing()
-        
         clear_dynamodb_table(models_table, "model_id")
         clear_dynamodb_table(audit_table, "timestamp", "event_type")
         clear_dynamodb_table(users_table, "email")
@@ -208,8 +230,11 @@ async def create_artifact(
         model_name = metrics.get("name") or body.url.split("/")[-1]
         artifact_id = str(uuid4())
 
-        # FIX: Consistent Read to ensure we don't duplicate if called rapidly
-        existing = models_table.get_item(Key={"model_id": artifact_id}, ConsistentRead=True)
+        # FIX: Robust Get Item
+        def check_existing():
+            return models_table.get_item(Key={"model_id": artifact_id}, ConsistentRead=True)
+        
+        existing = make_robust_request(check_existing)
         if existing.get("Item"):
             raise HTTPException(status_code=409, detail="Artifact exists already")
 
@@ -266,7 +291,7 @@ async def list_artifacts(
     query = query_list[0]
     
     try:
-        # Strong Consistency Scan
+        # Use Robust Scan
         items = scan_all_items(models_table)
         
         filtered_results = []
@@ -316,7 +341,7 @@ async def list_artifacts_regex(
     try:
         pattern = re.compile(body.regex)
         
-        # Strong Consistency Scan
+        # Use Robust Scan
         items = scan_all_items(models_table)
         
         results = []
@@ -348,7 +373,7 @@ async def get_artifact_by_name(
     user=Depends(require_role("admin", "uploader", "viewer"))
 ):
     try:
-        # Strong Consistency Scan
+        # Use Robust Scan
         items = scan_all_items(models_table)
         
         results = []
@@ -377,8 +402,11 @@ async def get_artifact(
     user=Depends(require_role("admin", "uploader", "viewer"))
 ):
     try:
-        # FIX: Consistent Read
-        response = models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
+        # FIX: Robust Get Item
+        def get_op():
+            return models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
+            
+        response = make_robust_request(get_op)
         item = response.get("Item")
         
         if not item:
@@ -398,6 +426,7 @@ async def get_artifact(
             }
         }
     except HTTPException:
+        # FIX: Explicitly allow HTTPExceptions to bubble up
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -410,8 +439,11 @@ async def update_artifact(
     user=Depends(require_role("admin", "uploader"))
 ):
     try:
-        # FIX: Consistent Read
-        existing = models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
+        # FIX: Robust Get Item
+        def get_op():
+            return models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
+        
+        existing = make_robust_request(get_op)
         if not existing.get("Item"):
             raise HTTPException(status_code=404, detail="Artifact does not exist")
         
@@ -452,8 +484,11 @@ async def delete_artifact(
     user=Depends(require_role("admin"))
 ):
     try:
-        # FIX: Consistent Read
-        existing = models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
+        # FIX: Robust Get Item
+        def get_op():
+            return models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
+            
+        existing = make_robust_request(get_op)
         if not existing.get("Item"):
             raise HTTPException(status_code=404, detail="Artifact does not exist")
             
@@ -467,8 +502,11 @@ async def delete_artifact(
 @app.get("/artifact/model/{id}/rate")
 async def get_rating(id: str, user=Depends(require_role("admin", "uploader", "viewer"))):
     try:
-        # FIX: Consistent Read
-        response = models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
+        # FIX: Robust Get Item
+        def get_op():
+            return models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
+            
+        response = make_robust_request(get_op)
         item = response.get("Item")
         
         if not item:
@@ -510,6 +548,9 @@ async def get_rating(id: str, user=Depends(require_role("admin", "uploader", "vi
             },
             "size_score_latency": 0.0
         }
+    except HTTPException:
+        # FIX: Critical Fix - Let 404s bubble up!
+        raise
     except Exception as e:
         logger.exception("Rating fetch error")
         raise HTTPException(status_code=500, detail="Error computing metrics")
@@ -520,8 +561,11 @@ async def get_lineage(
     user=Depends(require_role("admin", "uploader", "viewer"))
 ):
     try:
-        # FIX: Consistent Read for root
-        response = models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
+        # FIX: Robust Get Item
+        def root_op():
+            return models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
+            
+        response = make_robust_request(root_op)
         item = response.get("Item")
         if not item:
             raise HTTPException(status_code=404, detail="Artifact does not exist")
@@ -536,8 +580,11 @@ async def get_lineage(
                 return
             visited.add(artifact_id)
             try:
-                # FIX: Consistent Read for recursion
-                art_resp = models_table.get_item(Key={"model_id": artifact_id}, ConsistentRead=True)
+                # FIX: Robust Get Item
+                def child_op():
+                    return models_table.get_item(Key={"model_id": artifact_id}, ConsistentRead=True)
+                
+                art_resp = make_robust_request(child_op)
                 art = art_resp.get("Item")
                 if art:
                     nodes.append({
@@ -582,9 +629,6 @@ async def get_lineage(
         logger.exception("Lineage fetch error")
         raise HTTPException(status_code=400, detail="The lineage graph cannot be computed because the artifact metadata is missing or malformed")
 
-# ... rest of file (license-check, cost) ...
-# (Ensure license-check and cost also use ConsistentRead if they fetch items)
-
 @app.post("/artifact/model/{id}/license-check")
 async def check_license_compatibility(
     id: str,
@@ -592,8 +636,11 @@ async def check_license_compatibility(
     user=Depends(require_role("admin", "uploader", "viewer"))
 ):
     try:
-        # FIX: Consistent Read
-        response = models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
+        # FIX: Robust Get Item
+        def get_op():
+            return models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
+            
+        response = make_robust_request(get_op)
         item = response.get("Item")
         if not item:
             raise HTTPException(status_code=404, detail="The artifact or GitHub project could not be found")
@@ -620,8 +667,11 @@ async def get_cost(
     user=Depends(require_role("admin", "uploader", "viewer"))
 ):
     try:
-        # FIX: Consistent Read
-        response = models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
+        # FIX: Robust Get Item
+        def get_op():
+            return models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
+            
+        response = make_robust_request(get_op)
         item = response.get("Item")
         if not item:
              raise HTTPException(status_code=404, detail="Artifact does not exist")
@@ -643,8 +693,10 @@ async def get_cost(
                 if artifact_id in visited: return 0.0
                 visited.add(artifact_id)
                 try:
-                    # FIX: Consistent Read
-                    art = models_table.get_item(Key={"model_id": artifact_id}, ConsistentRead=True).get("Item")
+                    def child_op():
+                        return models_table.get_item(Key={"model_id": artifact_id}, ConsistentRead=True)
+                    art_resp = make_robust_request(child_op)
+                    art = art_resp.get("Item")
                     if not art: return 0.0
                     art_size = int(art.get("size", 100))
                     art_cost = round(art_size / 1024 / 1024, 2)
