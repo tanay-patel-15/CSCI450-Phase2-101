@@ -55,8 +55,7 @@ def test_default_admin_authenticate_flow():
         "user": {
             # Use TEST_ADMIN_EMAIL for the 'name' field
             "name": TEST_ADMIN_EMAIL, 
-            # You might need 'is_admin': True if your API requires it for this flow
-            # I will omit it for now, but be ready to add it if the 422 persists.
+            "is_admin": True,
         },
         "secret": {
             # Put the password inside the 'secret' field
