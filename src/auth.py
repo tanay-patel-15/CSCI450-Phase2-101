@@ -56,7 +56,7 @@ def register(body: RegisterRequest):
     except Exception:
         raise HTTPException(400, "User already exists")
 
-@router.post("/authenticate")
+@router.put("/authenticate")
 def authenticate(body: AuthenticationRequest):
     """
     Authenticate a user and return a JWT token.
@@ -98,4 +98,6 @@ def authenticate(body: AuthenticationRequest):
     # Create the token
     token = create_token({"sub": username, "role": user_item["role"]})
     
-    return f"Bearer {token}"
+    # Return as JSON string per spec (lowercase 'bearer' per example)
+    from fastapi.responses import JSONResponse
+    return JSONResponse(content=f"bearer {token}")
