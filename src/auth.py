@@ -7,6 +7,7 @@ import boto3
 import os
 import logging
 import json
+import base64
 
 router = APIRouter()
 logger = logging.getLogger("auth_logger")
@@ -16,7 +17,8 @@ logger.setLevel(logging.INFO)
 ADMIN_EMAIL_ENV_KEY = "ADMIN_EMAIL_ENV"
 ADMIN_PASSWORD_ENV_KEY = "ADMIN_PASSWORD_ENV"
 DEFAULT_ADMIN_EMAIL = os.environ.get(ADMIN_EMAIL_ENV_KEY, "ece30861defaultadminuser")
-DEFAULT_ADMIN_PASSWORD = os.environ.get(ADMIN_PASSWORD_ENV_KEY, r"""correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;""")
+ENCODED_ADMIN_PASSWORD = os.environ.get(ADMIN_PASSWORD_ENV_KEY)
+DEFAULT_ADMIN_PASSWORD = None
 
 # --- Internal Models matching spec schemas ---
 
@@ -37,6 +39,17 @@ class RegisterRequest(BaseModel):
     role: str = "viewer"
 
 from src.db_setup import create_tables_if_missing
+
+if ENCODED_ADMIN_PASSWORD:
+    try:
+        DEFAULT_ADMIN_PASSWORD = base64.b64decode(ENCODED_ADMIN_PASSWORD).decode('utf-8')
+        logger.info("Admin password successfully decoded from Base64")
+    except Exception as e:
+        logger.error(f"Failed to Base64 decode ADMIN_PASSWORD_ENV. Using raw value. Error: {e}")
+        DEFAULT_ADMIN_PASSWORD = ENCODED_ADMIN_PASSWORD
+else:
+    logger.warning("ADMIN_PASSWORD_ENV not found in environment. Using hardcoded fallback")
+    DEFAULT_ADMIN_PASSWORD = "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;"
 
 def get_user_table():
     create_tables_if_missing()

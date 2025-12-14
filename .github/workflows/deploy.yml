@@ -63,4 +63,4 @@ jobs:
               UsersTableName=users-group101-unique-v3 \
               AuditLogTableName=audit-logs-group101-unique-v3 \
               AdminEmailParam=ece30861defaultadminuser \
-              AdminPasswordParam=$'correcthorsebatterystaple123(!__+@**(A\'"`\'\';DROP TABLE artifacts;'
+              AdminPasswordParam=Y29ycmVjdGhvcnNlYmF0dGVyeXN0YXBsZTEyMyghX18rQSoqKEEnImA7RFJPQyBUQUJMRSBhcnRpZmFjdHM7

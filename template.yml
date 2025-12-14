@@ -33,7 +33,7 @@ Parameters:
     Description: The default admin password
     NoEcho: true
     Default: |
-      correcthorsebatterystaple123(!__+@**(A'"`;DROP TABLE artifacts;
+      Y29ycmVjdGhvcnNlYmF0dGVyeXN0YXBsZTEyMyghX18rQSoqKEEnImA7RFJPQyBUQUJMRSBhcnRpZmFjdHM7
 
 Resources:
 
