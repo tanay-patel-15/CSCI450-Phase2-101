@@ -44,23 +44,3 @@ def verify_password(password: str, hashed: str) -> bool:
     except Exception as e:
         logger.error(f"Password verification failed: {e}")
         return False
-```
-
----
-
-## 🎯 **Why These Fixes Work**
-
-1. **Auth Response**: FastAPI auto-serializes string returns to proper JSON (`"bearer ..."`)
-2. **Password Consistency**: Character-based truncation (not byte-based) ensures the same 60 chars are used for both hash and verify
-3. **Self-Healing**: Admin is force-written to DB on every login attempt, preventing stale state
-
----
-
-## ✅ **Expected Result After Fix**
-```
-✅ System Health Test passed!
-✅ System Tracks Test passed!
-✅ Access Control Track is present!
-✅ Login Test passed!              ← THIS WILL NOW PASS
-✅ System Reset Test passed!       ← Cascading success
-✅ Upload tests will now run...    ← Everything else follows
