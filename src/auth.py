@@ -72,8 +72,11 @@ def authenticate(body: AuthenticationRequest):
     if not user_item and username == DEFAULT_ADMIN_EMAIL:
         logger.info("Admin user not found. Performing self-healing.")
         try:
+            # Generate a hash with the corrected hash_password function
             hashed = hash_password(DEFAULT_ADMIN_PASSWORD)
-            logger.error(f"DEBUG_GENERATED_HASH: {hashed}")
+            
+            logger.error(f"DEBUG: Storing new hash: {hashed}")
+            
             admin_item = {
                 "email": DEFAULT_ADMIN_EMAIL,
                 "password_hash": hashed,
@@ -90,6 +93,7 @@ def authenticate(body: AuthenticationRequest):
     if not user_item:
         raise HTTPException(401, "The user or password is invalid.")
 
+    # Verification uses the corrected verify_password function
     if not verify_password(password, user_item["password_hash"]):
         raise HTTPException(401, "The user or password is invalid.")
 
