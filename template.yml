@@ -81,8 +81,8 @@ Resources:
   ModelRegistryFunction:
     Type: AWS::Serverless::Function
     Properties:
-      Handler: src.api.lambda_handler
-      CodeUri: .
+      Handler: api.lambda_handler
+      CodeUri: src/
       Policies:
         # Policy to allow DynamoDB access (READ/WRITE to all three tables)
         - DynamoDBCrudPolicy:
