@@ -51,10 +51,14 @@ def test_login_flow(client):
     if response.status_code != 200:
         print(f"Login Failed: {response.status_code}")
         print(f"Response: {response.text}")
-        
+    
         # Check if table has items
-        items = table.scan()['Items']
-        print(f"Table content: {items}")
+        try:
+            debug_table = boto3.resource("dynamodb", region_name="us-east-1").Table("users")
+            items = debug_table.scan()['Items']
+            print(f"Table content: {items}")
+        except Exception as e:
+            print(f"Could not scan table: {e}")
 
     assert response.status_code == 200
     assert "bearer" in response.text.lower()
