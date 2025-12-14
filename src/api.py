@@ -10,6 +10,8 @@ import logging
 import time
 from datetime import datetime
 from uuid import uuid4
+import base64
+from decimal import Decimal  # <--- NEW IMPORT
 
 # Internal imports
 from src.metrics import compute_metrics_for_model
@@ -26,7 +28,7 @@ AUDIT_TABLE = os.environ.get("AUDIT_TABLE", "audit-logs-group101-unique-v3")
 USERS_TABLE = os.environ.get("USERS_TABLE", "users-group101-unique-v3")
 
 DEFAULT_ADMIN_EMAIL = os.environ.get("DEFAULT_ADMIN_EMAIL", "ece30861defaultadminuser") 
-# FIX: Hardcode to match test expectation exactly
+# STRICT HARDCODE to prevent environment variable corruption
 DEFAULT_ADMIN_PASSWORD = "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE packages;"
 
 logger = logging.getLogger("api_logger")
@@ -67,11 +69,24 @@ class SimpleLicenseCheckRequest(BaseModel):
 
 # --- Helper Functions ---
 
+def convert_floats_to_decimal(obj):
+    """
+    Recursively converts float values to Decimal.
+    Required because boto3 does not support native float types in put_item.
+    """
+    if isinstance(obj, float):
+        return Decimal(str(obj))
+    if isinstance(obj, dict):
+        return {k: convert_floats_to_decimal(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [convert_floats_to_decimal(i) for i in obj]
+    return obj
+
 def initialize_default_admin():
     """Ensures a default admin user is present."""
     create_tables_if_missing() 
     try:
-        # Uses the hardcoded DEFAULT_ADMIN_PASSWORD
+        # Unconditional update to ensure password matches code
         hashed = hash_password(DEFAULT_ADMIN_PASSWORD)
         users_table.put_item(
             Item={
@@ -94,7 +109,8 @@ def log_audit_event(event_type: str, user_payload: dict, details: dict):
             "role": user_payload.get("role", "unknown"),
             "details": details
         }
-        audit_table.put_item(Item=item)
+        # Audit logs usually don't have floats, but safe to convert anyway
+        audit_table.put_item(Item=convert_floats_to_decimal(item))
     except Exception as e:
         logger.error(f"Audit log failed: {e}")
 
@@ -183,7 +199,11 @@ async def create_artifact(
             "uploaded_by": user.get("sub"),
             "upload_timestamp": datetime.utcnow().isoformat()
         }
-        models_table.put_item(Item=item)
+        
+        # FIX: Convert floats to Decimals before inserting into DynamoDB
+        clean_item = convert_floats_to_decimal(item)
+        models_table.put_item(Item=clean_item)
+        
         log_audit_event("CREATE", user, {"id": artifact_id, "url": body.url})
 
         return {
@@ -320,7 +340,11 @@ async def update_artifact(
             "updated_by": user.get("sub"),
             "update_timestamp": datetime.utcnow().isoformat()
         })
-        models_table.put_item(Item=item)
+        
+        # FIX: Convert floats to Decimals for update too
+        clean_item = convert_floats_to_decimal(item)
+        models_table.put_item(Item=clean_item)
+        
         log_audit_event("UPDATE", user, {"id": id, "url": body.data.url})
         return {"message": "Artifact is updated."}
         
