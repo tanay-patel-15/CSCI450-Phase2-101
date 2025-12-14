@@ -53,7 +53,7 @@ else:
 
 def get_user_table():
     create_tables_if_missing()
-    table_name = os.environ.get("USERS_TABLE", "users")
+    table_name = os.environ.get("USERS_TABLE", "users-group101-unique-v3")
     return boto3.resource("dynamodb").Table(table_name)
 
 @router.post("/register")
