@@ -24,6 +24,15 @@ Parameters:
   JwtSecret:
     Type: String
     Description: The secret key for signing JWT tokens
+  AdminEmailParam:
+    Type: String
+    Description: The default admin email
+    Default: ece30861defaultadminuser
+  AdminPasswordParam:
+    Type: String
+    Description: The default admin password
+    NoEcho: true
+    Default: correcthorsebatterystaple123(!__+@**(A'"`;DROP TABLE artifacts;
 
 Resources:
 
@@ -117,6 +126,8 @@ Resources:
           MODELS_TABLE: !Ref ModelsTableName
           USERS_TABLE: !Ref UsersTableName
           AUDIT_TABLE: !Ref AuditLogTableName 
+          DEFAULT_ADMIN_EMAIL: !Ref AdminEmailParam
+          DEFAULT_ADMIN_PASSWORD: !Ref AdminPasswordParam
           APP_VERSION: 1.0.0
           # Existing variables
           SECURITY_HOOK_URL: "https://test.hook.svc"

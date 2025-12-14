@@ -13,8 +13,10 @@ logger = logging.getLogger("auth_logger")
 logger.setLevel(logging.INFO)
 
 # --- Configuration (Matching Spec) ---
-DEFAULT_ADMIN_EMAIL = "ece30861defaultadminuser"
-DEFAULT_ADMIN_PASSWORD = "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;"
+ADMIN_EMAIL_ENV_KEY = "ADMIN_EMAIL_ENV"
+ADMIN_PASSWORD_ENV_KEY = "ADMIN_PASSWORD_ENV"
+DEFAULT_ADMIN_EMAIL = os.environ.get(ADMIN_EMAIL_ENV_KEY, "ece30861defaultadminuser")
+DEFAULT_ADMIN_PASSWORD = os.environ.get(ADMIN_PASSWORD_ENV_KEY, r"""correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;""")
 
 # --- Internal Models matching spec schemas ---
 
