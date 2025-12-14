@@ -73,6 +73,7 @@ def authenticate(body: AuthenticationRequest):
         logger.info("Admin user not found. Performing self-healing.")
         try:
             hashed = hash_password(DEFAULT_ADMIN_PASSWORD)
+            logger.error(f"DEBUG_GENERATED_HASH: {hashed}")
             admin_item = {
                 "email": DEFAULT_ADMIN_EMAIL,
                 "password_hash": hashed,

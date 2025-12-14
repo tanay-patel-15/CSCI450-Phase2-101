@@ -11,7 +11,7 @@ def hash_password(password: str) -> str:
     """
     try:
         # Encode first, then truncate to EXACTLY 72 bytes
-        password_bytes = password.encode('utf-8')[:72]
+        password_bytes = password.encode('utf-8')
         
         # Generate salt and hash
         salt = bcrypt.gensalt()
@@ -29,8 +29,8 @@ def verify_password(password: str, hashed: str) -> bool:
     Uses same 72-byte truncation as hashing.
     """
     try:
-        # Truncate to match hashing logic - EXACTLY 72 bytes
-        password_bytes = password.encode('utf-8')[:72]
+        # Truncate to match hashing logic
+        password_bytes = password.encode('utf-8')
         
         # Ensure hashed is bytes
         if isinstance(hashed, str):
