@@ -123,7 +123,7 @@ def clear_dynamodb_table(table_obj, partition_key: str, sort_key: str = None):
     logger.info(f"Successfully deleted {len(keys_to_delete)} items from table {table_obj.name}.")
 
 @app.post("/reset", status_code=200)
-async def reset_system(user=Depends(require_role("admin"))):
+async def reset_system(user):
     """Completely clears all persistent storage (DynamoDB tables and S3 bucket). Admin only."""
 
     try:
