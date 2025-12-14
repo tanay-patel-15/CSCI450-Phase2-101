@@ -57,7 +57,7 @@ def test_default_admin_authenticate_flow():
     }
     
     # The first call should trigger self-healing if the user is missing
-    response = client.post("/authenticate", json=login_payload)
+    response = client.put("/authenticate", json=login_payload)
     
     # Check for success
     if response.status_code != 200:
