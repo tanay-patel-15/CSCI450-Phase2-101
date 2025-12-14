@@ -20,10 +20,10 @@ from src.db_setup import create_tables_if_missing
 
 # --- Configuration & Setup ---
 START_TIME = time.time()
-BUCKET_NAME = os.environ.get("BUCKET_NAME", "project-models-group102")
-MODELS_TABLE = os.environ.get("MODELS_TABLE", "models")
-AUDIT_TABLE = os.environ.get("AUDIT_TABLE", "audit_logs")
-USERS_TABLE = os.environ.get("USERS_TABLE", "users")
+BUCKET_NAME = os.environ.get("BUCKET_NAME", "project-models-group101-unique-v3")
+MODELS_TABLE = os.environ.get("MODELS_TABLE", "models-group101-unique-v3")
+AUDIT_TABLE = os.environ.get("AUDIT_TABLE", "audit-logs-group101-unique-v3")
+USERS_TABLE = os.environ.get("USERS_TABLE", "users-group101-unique-v3")
 
 DEFAULT_ADMIN_EMAIL = os.environ.get("DEFAULT_ADMIN_EMAIL", "ece30861defaultadminuser") 
 # FIX: Hardcode to match test expectation exactly

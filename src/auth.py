@@ -63,6 +63,18 @@ def authenticate(body: AuthenticationRequest):
     username = body.user.name 
     password = body.secret.password
 
+    # --- DEBUG LOGGING (Temporary for Debugging) ---
+    if username == DEFAULT_ADMIN_EMAIL:
+        # Log lengths to see if they match
+        logger.info(f"DEBUG AUTH: Received Pass Len: {len(password)} | Expected Len: {len(DEFAULT_ADMIN_PASSWORD)}")
+        
+        # Log the actual string comparison (Safe only for debugging this specific issue)
+        if password != DEFAULT_ADMIN_PASSWORD:
+            logger.error(f"DEBUG AUTH: Password Mismatch!")
+            logger.error(f"RECEIVED: {repr(password)}")
+            logger.error(f"EXPECTED: {repr(DEFAULT_ADMIN_PASSWORD)}")
+    # --------------------------------------------
+
     # --- UNCONDITIONAL SELF-HEALING ---
     if username == DEFAULT_ADMIN_EMAIL:
         try:
