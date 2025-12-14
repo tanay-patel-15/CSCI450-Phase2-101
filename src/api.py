@@ -409,7 +409,6 @@ async def get_cost(artifact_type: str, id: str, dependency: bool = False, user=D
     except Exception as e:
          raise HTTPException(status_code=500, detail=str(e))
 
-# FIX: Ensure the default admin exists immediately when the lambda loads
-initialize_default_admin()
+# Startup init removed in favor of lazy-creation in auth.py to handle race conditions
 
 lambda_handler = Mangum(app)
