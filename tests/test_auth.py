@@ -6,10 +6,11 @@ import boto3
 
 client = TestClient(app)
 
+# Use the credentials that match your unconditional self-healing logic
 TEST_ADMIN_EMAIL = "ece30861defaultadminuser" 
 TEST_ADMIN_PASSWORD = "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;"
 
-#DynamoDB test table
+# DynamoDB test table config
 USERS_TABLE = os.environ.get("USERS_TABLE", "users")
 dynamodb = boto3.resource("dynamodb")
 db_users_table = dynamodb.Table(USERS_TABLE)
@@ -31,18 +32,24 @@ def cleanup_user(test_user_email):
     except Exception:
         pass
 
-    def test_register_and_login(test_user_email):
-        # Register
-        r = client.post("/register", json={"email": test_user_email, "password": "secret"})
-        assert r.status_code == 200
-        assert r.json() == {"message": "registered"}
+def test_register_and_login(test_user_email):
+    # Register
+    r = client.post("/register", json={"email": test_user_email, "password": "secret"})
+    assert r.status_code == 200
+    assert r.json() == {"message": "registered"}
 
-        # Login
-        r = client.post("/login", json={"username": test_user_email, "password": "secret"})
-        assert r.status_code == 200
-        body = r.json()
-        assert "access_token" in body
-        assert body["token_type"] == "bearer"
+    # Login - Ordinary users might use the same format, but let's assume
+    # checking for the "bearer" string is sufficient for now based on your API.
+    r = client.put("/authenticate", json={
+        "user": {"name": test_user_email, "is_admin": False},
+        "secret": {"password": "secret"}
+    })
+    assert r.status_code == 200
+    
+    # FIX: Check for string response, not dictionary
+    token_response = r.json()
+    assert isinstance(token_response, str)
+    assert token_response.lower().startswith("bearer ")
 
 def test_default_admin_authenticate_flow():
     """
@@ -50,20 +57,16 @@ def test_default_admin_authenticate_flow():
     This test relies on the app's self-healing logic.
     """
     
-    # 1. Define the cleartext payload locally to avoid global config issues
     login_payload = {
         "user": {
-            # Use TEST_ADMIN_EMAIL for the 'name' field
             "name": TEST_ADMIN_EMAIL, 
             "is_admin": True,
         },
         "secret": {
-            # Put the password inside the 'secret' field
             "password": TEST_ADMIN_PASSWORD
         }
     }
     
-    # The first call should trigger self-healing if the user is missing
     response = client.put("/authenticate", json=login_payload)
     
     # Check for success
@@ -72,6 +75,10 @@ def test_default_admin_authenticate_flow():
         print(f"Response Body: {response.text}")
         
     assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
-    body = response.json()
-    assert "access_token" in body
-    assert body["token_type"] == "bearer"
+    
+    # FIX: The API Spec defines the response as a simple string, not a JSON object
+    token = response.json()
+    
+    # Assert it is a string and starts with 'bearer'
+    assert isinstance(token, str), f"Expected string token, got {type(token)}"
+    assert token.lower().startswith("bearer "), f"Token should start with 'bearer', got: {token}"
