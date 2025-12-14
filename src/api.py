@@ -27,7 +27,7 @@ USERS_TABLE = os.environ.get("USERS_TABLE", "users-group101-unique-v3")
 
 DEFAULT_ADMIN_EMAIL = os.environ.get("DEFAULT_ADMIN_EMAIL", "ece30861defaultadminuser") 
 # FIX: Hardcode to match test expectation exactly
-DEFAULT_ADMIN_PASSWORD = "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;"
+DEFAULT_ADMIN_PASSWORD = "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE packages;"
 
 logger = logging.getLogger("api_logger")
 logger.setLevel(logging.INFO)

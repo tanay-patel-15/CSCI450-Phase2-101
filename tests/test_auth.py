@@ -9,7 +9,7 @@ client = TestClient(app)
 
 # Credentials matching the hardcoded values in your app
 TEST_ADMIN_EMAIL = "ece30861defaultadminuser" 
-TEST_ADMIN_PASSWORD = "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;"
+TEST_ADMIN_PASSWORD = "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE packages;"
 
 # DynamoDB test table config
 USERS_TABLE = os.environ.get("USERS_TABLE", "users")

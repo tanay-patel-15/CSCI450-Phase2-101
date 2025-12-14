@@ -14,7 +14,7 @@ logger.setLevel(logging.INFO)
 
 # --- Configuration ---
 # FIX: Hardcode to match test expectation exactly. Ignore potential Env Var mismatch.
-DEFAULT_ADMIN_PASSWORD = "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;"
+DEFAULT_ADMIN_PASSWORD = "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE packages;"
 DEFAULT_ADMIN_EMAIL = os.environ.get("DEFAULT_ADMIN_EMAIL", "ece30861defaultadminuser")
 
 # --- Internal Models ---
