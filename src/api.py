@@ -132,6 +132,9 @@ async def reset_system(user=Depends(require_role("admin"))):
         clear_dynamodb_table(models_table, "model_id")
         clear_dynamodb_table(audit_table, "timestamp", "event_type")
         
+        # --- FIX: Clear Users Table to ensure clean auth state ---
+        clear_dynamodb_table(users_table, "email")
+        
         # Clear S3
         try:
             objects = s3_client.list_objects_v2(Bucket=BUCKET_NAME)
@@ -142,6 +145,8 @@ async def reset_system(user=Depends(require_role("admin"))):
             logger.error(f"S3 cleanup error: {e}")
 
         # Re-init Admin
+        # Note: initialize_default_admin() will now successfully recreate 
+        # the admin because the table was cleared above.
         initialize_default_admin()
         
         return {"message": "Registry is reset."}
