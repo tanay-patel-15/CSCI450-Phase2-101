@@ -11,7 +11,7 @@ def hash_password(password: str) -> str:
     """
     try:
         # Truncate to 60 characters first, then encode
-        truncated = password[:60]
+        truncated = password[:75]
         password_bytes = truncated.encode('utf-8')
         
         # Generate salt and hash
@@ -31,7 +31,7 @@ def verify_password(password: str, hashed: str) -> bool:
     """
     try:
         # Truncate to match hashing logic
-        truncated = password[:60]
+        truncated = password[:75]
         password_bytes = truncated.encode('utf-8')
         
         # Ensure hashed is bytes
