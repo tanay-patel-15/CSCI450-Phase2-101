@@ -5,15 +5,16 @@ import logging
 logger = logging.getLogger("db_setup")
 logger.setLevel(logging.INFO)
 
-MODELS_TABLE = os.environ.get("MODELS_TABLE", "models")
-USERS_TABLE = os.environ.get("USERS_TABLE", "users")
-AUDIT_TABLE = os.environ.get("AUDIT_TABLE", "audit_logs")
-
 def create_tables_if_missing():
     """
     Checks if required DynamoDB tables exist and creates them if they don't.
     Safe to call repeatedly (idempotent).
     """
+    # Read env vars at runtime to ensure we pick up any changes (e.g. during tests)
+    MODELS_TABLE = os.environ.get("MODELS_TABLE", "models")
+    USERS_TABLE = os.environ.get("USERS_TABLE", "users")
+    AUDIT_TABLE = os.environ.get("AUDIT_TABLE", "audit_logs")
+
     dynamodb = boto3.resource("dynamodb")
     client = boto3.client("dynamodb")
     
