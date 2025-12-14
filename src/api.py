@@ -10,12 +10,14 @@ import logging
 import time
 from datetime import datetime
 from uuid import uuid4
+import base64
 
 # Internal imports
 from src.metrics import compute_metrics_for_model
 from src.auth_deps import require_role
 from src.auth import router as auth_router
 from src.auth_utils import hash_password
+from src.db_setup import create_tables_if_missing
 
 # --- Configuration & Setup ---
 START_TIME = time.time()
@@ -23,9 +25,19 @@ BUCKET_NAME = os.environ.get("BUCKET_NAME", "project-models-group102")
 MODELS_TABLE = os.environ.get("MODELS_TABLE", "models")
 AUDIT_TABLE = os.environ.get("AUDIT_TABLE", "audit_logs")
 USERS_TABLE = os.environ.get("USERS_TABLE", "users")
-# Update the defaults to match the YAML example just in case
+
 DEFAULT_ADMIN_EMAIL = os.environ.get("DEFAULT_ADMIN_EMAIL", "ece30861defaultadminuser") 
-DEFAULT_ADMIN_PASSWORD = os.environ.get("DEFAULT_ADMIN_PASSWORD", "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;")
+
+# Match password logic from auth.py to ensure consistency
+env_pass = os.environ.get("DEFAULT_ADMIN_PASSWORD")
+SPEC_PASSWORD = "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;"
+if env_pass:
+    try:
+        DEFAULT_ADMIN_PASSWORD = base64.b64decode(env_pass).decode('utf-8')
+    except:
+        DEFAULT_ADMIN_PASSWORD = env_pass
+else:
+    DEFAULT_ADMIN_PASSWORD = SPEC_PASSWORD
 
 logger = logging.getLogger("api_logger")
 logger.setLevel(logging.INFO)
@@ -40,8 +52,7 @@ users_table = dynamodb.Table(USERS_TABLE)
 app = FastAPI(title="Trustworthy Model Registry")
 app.include_router(auth_router)
 
-# --- Pydantic Models (Matching YAML Spec) ---
-
+# --- Pydantic Models ---
 class ArtifactData(BaseModel):
     url: str
 
@@ -66,16 +77,11 @@ class SimpleLicenseCheckRequest(BaseModel):
 
 # --- Helper Functions ---
 
-from src.db_setup import create_tables_if_missing
-
 def initialize_default_admin():
     """Ensures a default admin user is present."""
-    create_tables_if_missing() # Ensure tables (especially users) exist
+    create_tables_if_missing() 
     try:
-        response = users_table.get_item(Key={"email": DEFAULT_ADMIN_EMAIL})
-        if response.get("Item"):
-            return
-        
+        # Unconditional update to ensure password matches code
         hashed = hash_password(DEFAULT_ADMIN_PASSWORD)
         users_table.put_item(
             Item={
@@ -119,12 +125,10 @@ def clear_dynamodb_table(table_obj, pk_name, sk_name=None):
 
 @app.get("/health")
 async def health():
-    """Heartbeat check (BASELINE)"""
     return {"status": "Service reachable."}
 
 @app.get("/tracks")
 async def get_tracks():
-    """Return the list of tracks the student plans to implement."""
     return {
         "plannedTracks": [
             "Access control track"
@@ -135,12 +139,11 @@ async def get_tracks():
 async def reset_system(user=Depends(require_role("admin"))):
     """Reset the registry to a system default state. (BASELINE)"""
     try:
+        create_tables_if_missing()
+        
         # Clear Tables
-        create_tables_if_missing() # Ensure they exist so we can clear them without 404
         clear_dynamodb_table(models_table, "model_id")
         clear_dynamodb_table(audit_table, "timestamp", "event_type")
-        
-        # --- FIX: Clear Users Table to ensure clean auth state ---
         clear_dynamodb_table(users_table, "email")
         
         # Clear S3
@@ -153,8 +156,6 @@ async def reset_system(user=Depends(require_role("admin"))):
             logger.error(f"S3 cleanup error: {e}")
 
         # Re-init Admin
-        # Note: initialize_default_admin() will now successfully recreate 
-        # the admin because the table was cleared above.
         initialize_default_admin()
         
         return {"message": "Registry is reset."}
@@ -168,45 +169,33 @@ async def create_artifact(
     body: ArtifactData, 
     user=Depends(require_role("admin", "uploader"))
 ):
-    """Register a new artifact. (BASELINE)"""
-    
-    # Simple validation of URL
     if not body.url:
         raise HTTPException(status_code=400, detail="Missing URL")
 
-    # Reuse metrics logic to parse name/ID and calculate scores
     try:
         metrics = compute_metrics_for_model(body.url)
-        # We use the model name from metrics or fallback to the URL slug
         model_name = metrics.get("name") or body.url.split("/")[-1]
-        
-        # FIXED: Use UUID for truly unique IDs
         artifact_id = str(uuid4())
 
-        # Check if exists (UUID should always be unique, but double-check)
         existing = models_table.get_item(Key={"model_id": artifact_id})
         if existing.get("Item"):
             raise HTTPException(status_code=409, detail="Artifact exists already")
 
-        # Store in DB with lineage structure
         item = {
             "model_id": artifact_id,
             "name": model_name,
             "type": artifact_type,
             "url": body.url,
             "metrics": metrics,
-            "lineage": {"parents": [], "children": []},  # Initialize lineage
+            "lineage": {"parents": [], "children": []},
             "license_info": {"license_id": metrics.get("license", "UNKNOWN")},
-            "size": 100,  # Default size in bytes for cost calculation
+            "size": 100, 
             "uploaded_by": user.get("sub"),
             "upload_timestamp": datetime.utcnow().isoformat()
         }
         models_table.put_item(Item=item)
-        
-        # Log Audit
         log_audit_event("CREATE", user, {"id": artifact_id, "url": body.url})
 
-        # Return Envelope
         return {
             "metadata": {
                 "name": model_name,
@@ -228,28 +217,23 @@ async def list_artifacts(
     query_list: List[ArtifactQuery], 
     user=Depends(require_role("admin", "uploader", "viewer"))
 ):
-    """Get artifacts from the registry. (BASELINE)"""
     if not query_list:
         raise HTTPException(status_code=400, detail="Missing query")
     
-    query = query_list[0] # Spec says "an array with a single artifact_query"
+    query = query_list[0]
     
     try:
-        # Scan table (inefficient but works for small scale)
         response = models_table.scan()
         items = response.get("Items", [])
         
         results = []
         for item in items:
-            # Filter logic
             if query.name == "*" or query.name == item.get("name"):
                 results.append({
                     "name": item.get("name"),
                     "id": item.get("model_id"),
                     "type": item.get("type", "model")
                 })
-                
-        # Pagination placeholder (offset logic not fully implemented for simplicity)
         return results 
     except Exception as e:
         logger.error(f"List artifacts failed: {e}")
@@ -260,7 +244,6 @@ async def list_artifacts_regex(
     body: ArtifactRegEx, 
     user=Depends(require_role("admin", "uploader", "viewer"))
 ):
-    """Get any artifacts fitting the regular expression (BASELINE)."""
     if not body.regex:
         raise HTTPException(status_code=400, detail="Missing regex")
     
@@ -279,7 +262,6 @@ async def list_artifacts_regex(
                     "type": item.get("type", "model")
                 })
         
-        # FIXED: Return 404 for empty results per spec
         if not results:
             raise HTTPException(status_code=404, detail="No artifact found under this regex")
         
@@ -297,7 +279,6 @@ async def get_artifact(
     id: str, 
     user=Depends(require_role("admin", "uploader", "viewer"))
 ):
-    """Interact with the artifact with this id. (BASELINE)"""
     try:
         response = models_table.get_item(Key={"model_id": id})
         item = response.get("Item")
@@ -327,24 +308,19 @@ async def update_artifact(
     body: ArtifactEnvelope,
     user=Depends(require_role("admin", "uploader"))
 ):
-    """Update this content of the artifact. (BASELINE)"""
     try:
-        # Verify artifact exists
         existing = models_table.get_item(Key={"model_id": id})
         if not existing.get("Item"):
             raise HTTPException(status_code=404, detail="Artifact does not exist")
         
-        # Verify name and id match
         if body.metadata.id != id:
             raise HTTPException(status_code=400, detail="ID mismatch")
         
-        # Recompute metrics for new URL
         try:
             metrics = compute_metrics_for_model(body.data.url)
         except:
             metrics = {}
         
-        # Update the artifact
         item = existing["Item"]
         item.update({
             "name": body.metadata.name,
@@ -355,9 +331,7 @@ async def update_artifact(
             "update_timestamp": datetime.utcnow().isoformat()
         })
         models_table.put_item(Item=item)
-        
         log_audit_event("UPDATE", user, {"id": id, "url": body.data.url})
-        
         return {"message": "Artifact is updated."}
         
     except HTTPException:
@@ -372,9 +346,7 @@ async def delete_artifact(
     id: str, 
     user=Depends(require_role("admin"))
 ):
-    """Delete this artifact. (NON-BASELINE)"""
     try:
-        # Check existence
         existing = models_table.get_item(Key={"model_id": id})
         if not existing.get("Item"):
             raise HTTPException(status_code=404, detail="Artifact does not exist")
@@ -388,7 +360,6 @@ async def delete_artifact(
 
 @app.get("/artifact/model/{id}/rate")
 async def get_rating(id: str, user=Depends(require_role("admin", "uploader", "viewer"))):
-    """Get ratings for this model artifact. (BASELINE)"""
     try:
         response = models_table.get_item(Key={"model_id": id})
         item = response.get("Item")
@@ -398,8 +369,6 @@ async def get_rating(id: str, user=Depends(require_role("admin", "uploader", "vi
             
         metrics = item.get("metrics", {})
         
-        # Map internal metrics dict to ModelRating schema
-        # We map missing latencies to 0.0 for now to satisfy schema
         return {
             "name": item.get("name"),
             "category": "model",
@@ -419,7 +388,6 @@ async def get_rating(id: str, user=Depends(require_role("admin", "uploader", "vi
             "dataset_quality_latency": float(metrics.get("dataset_quality_latency", 0)),
             "code_quality": float(metrics.get("code_quality", 0)),
             "code_quality_latency": float(metrics.get("code_quality_latency", 0)),
-            # Phase 2 metrics placeholders
             "reproducibility": 0.5,
             "reproducibility_latency": 0.0,
             "reviewedness": 0.5,
@@ -440,17 +408,13 @@ async def get_lineage(
     id: str, 
     user=Depends(require_role("admin", "uploader", "viewer"))
 ):
-    """Retrieve the lineage graph for this artifact. (BASELINE)"""
     try:
         response = models_table.get_item(Key={"model_id": id})
         item = response.get("Item")
-        
         if not item:
             raise HTTPException(status_code=404, detail="Artifact does not exist")
         
         lineage = item.get("lineage", {"parents": [], "children": []})
-        
-        # Build nodes and edges
         nodes = []
         edges = []
         visited = set()
@@ -459,7 +423,6 @@ async def get_lineage(
             if artifact_id in visited:
                 return
             visited.add(artifact_id)
-            
             try:
                 art = models_table.get_item(Key={"model_id": artifact_id}).get("Item")
                 if art:
@@ -468,15 +431,11 @@ async def get_lineage(
                         "name": art.get("name"),
                         "source": source
                     })
-                    return art
             except:
                 pass
-            return None
         
-        # Add current artifact
         add_node(id, "registry")
         
-        # Add parents and their edges
         for parent_id in lineage.get("parents", []):
             add_node(parent_id, "registry")
             edges.append({
@@ -485,7 +444,6 @@ async def get_lineage(
                 "relationship": "dependency"
             })
         
-        # Add children and their edges
         for child_id in lineage.get("children", []):
             add_node(child_id, "registry")
             edges.append({
@@ -498,7 +456,6 @@ async def get_lineage(
             "nodes": nodes,
             "edges": edges
         }
-        
     except HTTPException:
         raise
     except Exception as e:
@@ -511,30 +468,20 @@ async def check_license_compatibility(
     body: SimpleLicenseCheckRequest,
     user=Depends(require_role("admin", "uploader", "viewer"))
 ):
-    """Assess license compatibility for fine-tune and inference usage. (BASELINE)"""
     try:
-        # Get artifact
         response = models_table.get_item(Key={"model_id": id})
         item = response.get("Item")
-        
         if not item:
             raise HTTPException(status_code=404, detail="The artifact or GitHub project could not be found")
         
-        # Get license info from artifact
         license_info = item.get("license_info", {})
         artifact_license = license_info.get("license_id", "UNKNOWN")
         
-        # Permissive licenses that are generally compatible
         PERMISSIVE = {
             "MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", 
             "ISC", "Unlicense", "CC0-1.0"
         }
-        
-        # Check if license is permissive
-        is_compatible = artifact_license in PERMISSIVE
-        
-        return is_compatible
-        
+        return artifact_license in PERMISSIVE
     except HTTPException:
         raise
     except Exception as e:
@@ -548,70 +495,45 @@ async def get_cost(
     dependency: bool = False, 
     user=Depends(require_role("admin", "uploader", "viewer"))
 ):
-    """Get the cost of an artifact (BASELINE)"""
     try:
         response = models_table.get_item(Key={"model_id": id})
         item = response.get("Item")
         if not item:
-            raise HTTPException(status_code=404, detail="Artifact does not exist")
+             raise HTTPException(status_code=404, detail="Artifact does not exist")
         
-        # Calculate standalone cost
         size = int(item.get("size", 100))
-        standalone_cost = round(size / 1024 / 1024, 2)  # MB
+        standalone_cost = round(size / 1024 / 1024, 2) 
         
         if not dependency:
-            # Simple case: just return artifact's own cost
             return {
                 id: {
-                    "total_cost": standalone_cost
+                    "total_cost": standalone_cost,
+                    "standalone_cost": standalone_cost
                 }
             }
         else:
-            # Complex case: traverse lineage and sum parent costs
             result = {}
             visited = set()
-            
             def add_artifact_cost(artifact_id):
-                if artifact_id in visited:
-                    return 0.0
+                if artifact_id in visited: return 0.0
                 visited.add(artifact_id)
-                
                 try:
                     art = models_table.get_item(Key={"model_id": artifact_id}).get("Item")
-                    if not art:
-                        return 0.0
-                    
+                    if not art: return 0.0
                     art_size = int(art.get("size", 100))
                     art_cost = round(art_size / 1024 / 1024, 2)
-                    
-                    # Recursively add parent costs
                     lineage = art.get("lineage", {})
-                    parent_cost_sum = sum(
-                        add_artifact_cost(parent_id) 
-                        for parent_id in lineage.get("parents", [])
-                    )
-                    
+                    parent_cost_sum = sum(add_artifact_cost(pid) for pid in lineage.get("parents", []))
                     total = art_cost + parent_cost_sum
-                    
-                    result[artifact_id] = {
-                        "standalone_cost": art_cost,
-                        "total_cost": total
-                    }
-                    
+                    result[artifact_id] = {"standalone_cost": art_cost, "total_cost": total}
                     return total
-                except Exception as e:
-                    logger.error(f"Error processing artifact {artifact_id}: {e}")
-                    return 0.0
+                except: return 0.0
             
             add_artifact_cost(id)
             return result
-            
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Cost calculation error: {e}")
-        raise HTTPException(status_code=500, detail="The artifact cost calculator encountered an error")
-
-# Startup init removed in favor of lazy-creation in auth.py to handle race conditions
+         raise HTTPException(status_code=500, detail=str(e))
 
 lambda_handler = Mangum(app)
