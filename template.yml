@@ -113,7 +113,7 @@ Resources:
           AUDIT_TABLE: !Ref AuditLogTableName 
           APP_VERSION: 1.0.0
           # Existing variables
-          SECURITY_HOOK_URL: "http://your.security.hook.url" # Must be set
+          SECURITY_HOOK_URL: "https://test.hook.svc"
           MAX_DOWNLOAD_SIZE_BYTES: 524288000
       Events:
         Api:
