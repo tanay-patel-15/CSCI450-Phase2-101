@@ -56,7 +56,7 @@ def register(body: RegisterRequest):
     except Exception:
         raise HTTPException(400, "User already exists")
 
-@router.put("/authenticate")
+@router.post("/authenticate")
 def authenticate(body: AuthenticationRequest):
     """
     Authenticate a user and return a JWT token.
@@ -98,4 +98,4 @@ def authenticate(body: AuthenticationRequest):
     # Create the token
     token = create_token({"sub": username, "role": user_item["role"]})
     
-    return f"bearer {token}"
+    return f"Bearer {token}"
