@@ -7,25 +7,30 @@ import os
 
 router = APIRouter()
 
+# --- Internal Models matching spec schemas ---
 
+class UserIdentity(BaseModel):
+    name: str
+    is_admin: bool = False
+
+class UserSecret(BaseModel):
+    password: str
+
+class AuthenticationRequest(BaseModel):
+    user: UserIdentity
+    secret: UserSecret
+
+# Keep RegisterRequest for internal use/testing setup
 class RegisterRequest(BaseModel):
     email: str
     password: str
     role: str = "viewer"
-
-
-class LoginRequest(BaseModel):
-    # tests send "username" here
-    username: str
-    password: str
-
 
 def get_user_table():
     table_name = os.environ.get("USERS_TABLE")
     if not table_name:
         raise RuntimeError("Environment variable USERS_TABLE not set")
     return boto3.resource("dynamodb").Table(table_name)
-
 
 @router.post("/register")
 def register(body: RegisterRequest):
@@ -46,18 +51,29 @@ def register(body: RegisterRequest):
         # user already exists or other constraint violation
         raise HTTPException(400, "User already exists")
 
-
-@router.post("/login")
-def login(body: LoginRequest):
+@router.put("/authenticate")
+def authenticate(body: AuthenticationRequest):
+    """
+    Authenticate a user and return a JWT token.
+    Matches the spec: PUT /authenticate with nested user/secret body.
+    """
     ddb = get_user_table()
-    email = body.username  # important: tests send "username"
-    user = ddb.get_item(Key={"email": email}).get("Item")
+    
+    # Map the spec's "name" field to our DB's "email" key
+    username = body.user.name 
+    password = body.secret.password
 
-    if not user:
-        raise HTTPException(401, "Invalid credentials")
+    user_item = ddb.get_item(Key={"email": username}).get("Item")
 
-    if not verify_password(body.password, user["password_hash"]):
-        raise HTTPException(401, "Invalid credentials")
+    # Spec requires 401 for invalid credentials
+    if not user_item:
+        raise HTTPException(401, "The user or password is invalid.")
 
-    token = create_token({"sub": email, "role": user["role"]})
-    return {"access_token": token, "token_type": "bearer"}
+    if not verify_password(password, user_item["password_hash"]):
+        raise HTTPException(401, "The user or password is invalid.")
+
+    # Create the token
+    token = create_token({"sub": username, "role": user_item["role"]})
+    
+    # Return exactly what the spec expects: A simple string "bearer <token>"
+    return f"bearer {token}"
