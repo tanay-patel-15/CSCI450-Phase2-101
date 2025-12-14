@@ -1,0 +1,329 @@
+openapi: 3.0.3
+info:
+  title: Autograder API
+  description: API for managing and running autograder tests.
+  version: 1.3.0
+servers:
+  - url: https://nonedified-andreas-degradedly.ngrok-free.app/api
+    description: Ngrok Tunnel
+  - url: http://dl-berlin.ecn.purdue.edu/api
+    description: Frontend Proxy
+  - url: http://dl-berlin.ecn.purdue.edu:8000
+    description: Direct Backend Server
+paths:
+  /phases:
+    get:
+      summary: List available phases
+      description: Retrieve the list of allowed phases for the autograder.
+      operationId: listPhases
+      responses:
+        '200':
+          description: List of phases returned successfully.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /{phase}/register:
+    parameters:
+      - $ref: '#/components/parameters/PhaseParam'
+    post:
+      summary: Register a team
+      description: |-
+        Register a team with the server for the given phase.
+
+        - For CLI and Phase 1 registrations, a GitHub repository URL is required and the service will attempt to clone it.
+        - For Phase 2 registrations, both `endpoint` (backend) and `fe_endpoint` (frontend) URLs are required, while the GitHub repository URL is optional.
+      operationId: registerTeam
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                group:
+                  type: integer
+                  description: The group number.
+                github:
+                  type: string
+                  description: GitHub repository URL. Required for CLI and Phase 1 registrations.
+                  format: uri
+                endpoint:
+                  type: string
+                  description: Link to the hosted backend endpoint (Phase 2).
+                  format: uri
+                fe_endpoint:
+                  type: string
+                  description: Link to the hosted frontend endpoint (Phase 2).
+                  format: uri
+                gh_token:
+                  type: string
+                  description: GitHub authentication token.
+                names:
+                  type: array
+                  items:
+                    type: string
+                  description: Names of the team members.
+              required:
+                - group
+                - gh_token
+                - names
+      responses:
+        '201':
+          description: Team registered successfully.
+        '400':
+          description: Invalid input data.
+        '403':
+          description: Unauthorized.
+
+  /{phase}/schedule:
+    parameters:
+      - $ref: '#/components/parameters/PhaseParam'
+    get:
+      summary: Get current scheduled runs
+      description: Get a list of all currently scheduled runs in the queue for the given phase.
+      operationId: getScheduledRun
+      responses:
+        '200':
+          description: Returned list successfully.
+    post:
+      summary: Schedule a run
+      description: Schedule a new test run for the specified group.
+      operationId: scheduleRun
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                group:
+                  type: integer
+                  description: The group number.
+                gh_token:
+                  type: string
+                  description: GitHub authentication token.
+              required:
+                - group
+                - gh_token
+      responses:
+        '201':
+          description: Run scheduled successfully.
+        '400':
+          description: Invalid input data.
+
+  /{phase}/run/all:
+    parameters:
+      - $ref: '#/components/parameters/PhaseParam'
+    get:
+      summary: Get currently running and scheduled runs
+      description: Retrieve list of all running and scheduled tasks for the given phase.
+      operationId: getRunAll
+      responses:
+        '200':
+          description: List of all the scheduled tasks.
+
+  /{phase}/run:
+    parameters:
+      - $ref: '#/components/parameters/PhaseParam'
+    delete:
+      summary: Cancel a run
+      description: Cancel a scheduled or running job for the given phase.
+      operationId: cancelRun
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                group:
+                  type: integer
+                  description: The group number.
+                gh_token:
+                  type: string
+                  description: GitHub authentication token.
+              required:
+                - group
+                - gh_token
+      responses:
+        '200':
+          description: Run cancelled successfully.
+        '400':
+          description: Invalid input data.
+
+  /{phase}/last_run:
+    parameters:
+      - $ref: '#/components/parameters/PhaseParam'
+    get:
+      summary: Check results from the last run
+      description: Retrieve results of the most recent test run for the given phase.
+      operationId: getLastRun
+      parameters:
+        - name: group
+          in: query
+          description: The group number.
+          required: true
+          schema:
+            type: integer
+        - name: gh_token
+          in: query
+          description: GitHub authentication token.
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Results from the last run retrieved successfully.
+        '400':
+          description: Invalid input data.
+
+  /{phase}/best_run:
+    parameters:
+      - $ref: '#/components/parameters/PhaseParam'
+    get:
+      summary: Check results from the best run
+      description: Retrieve results of the best test run for the given phase.
+      operationId: getBestRun
+      parameters:
+        - name: group
+          in: query
+          description: The group number.
+          required: true
+          schema:
+            type: integer
+        - name: gh_token
+          in: query
+          description: GitHub authentication token.
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Results from the best run retrieved successfully.
+        '400':
+          description: Invalid input data.
+
+  /{phase}/log/download:
+    parameters:
+      - $ref: '#/components/parameters/PhaseParam'
+    get:
+      summary: Download a log file
+      description: Retrieve a specific log file for detailed analysis.
+      operationId: downloadLog
+      parameters:
+        - name: group
+          in: query
+          description: The group number.
+          required: true
+          schema:
+            type: integer
+        - name: gh_token
+          in: query
+          description: GitHub authentication token.
+          required: true
+          schema:
+            type: string
+        - name: log
+          in: query
+          description: Path of the log file.
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Log file downloaded successfully.
+        '400':
+          description: Invalid input data.
+
+  /{phase}/stats:
+    parameters:
+      - $ref: '#/components/parameters/PhaseParam'
+    get:
+      summary: Get current stats of the class
+      description: Return the average, max, median, min, and standard deviation for the given phase.
+      operationId: seeStats
+      responses:
+        '200':
+          description: Stats returned successfully.
+
+  /{phase}/team/urls:
+    parameters:
+      - $ref: '#/components/parameters/PhaseParam'
+    patch:
+      summary: Update registered team URLs
+      description: |-
+        Update the URLs associated with a previously registered team. Only URL fields may be changed; team member names and other registration details remain read-only.
+      operationId: updateTeamUrls
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                group:
+                  type: integer
+                  description: The team number whose URLs should be updated.
+                gh_token:
+                  type: string
+                  description: GitHub authentication token authorizing the request.
+                github:
+                  type: string
+                  description: Updated GitHub repository URL.
+                  format: uri
+                endpoint:
+                  type: string
+                  description: Updated backend endpoint URL.
+                  format: uri
+                fe_endpoint:
+                  type: string
+                  description: Updated frontend endpoint URL.
+                  format: uri
+              required:
+                - group
+                - gh_token
+      responses:
+        '200':
+          description: URLs updated successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  team:
+                    type: object
+                    description: Snapshot of the updated team record.
+                    properties:
+                      github:
+                        type: string
+                        format: uri
+                      endpoint:
+                        type: string
+                        format: uri
+                      fe_endpoint:
+                        type: string
+                        format: uri
+                      names:
+                        type: array
+                        items:
+                          type: string
+        '400':
+          description: Invalid input data or no URL fields supplied to update.
+        '403':
+          description: Unauthorized.
+
+components:
+  parameters:
+    PhaseParam:
+      name: phase
+      in: path
+      description: Autograder phase identifier.
+      required: true
+      schema:
+        type: string
