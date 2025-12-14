@@ -5,6 +5,7 @@ from src.jwt_utils import create_token
 import boto3
 import os
 import logging
+import json
 
 router = APIRouter()
 logger = logging.getLogger("auth_logger")
@@ -12,7 +13,6 @@ logger.setLevel(logging.INFO)
 
 # --- Configuration (Matching Spec) ---
 DEFAULT_ADMIN_EMAIL = os.environ.get("DEFAULT_ADMIN_EMAIL", "ece30861defaultadminuser")
-# Precise escaping for the password string required by spec
 DEFAULT_ADMIN_PASSWORD = os.environ.get("DEFAULT_ADMIN_PASSWORD", "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;")
 
 # --- Internal Models matching spec schemas ---
@@ -36,8 +36,7 @@ class RegisterRequest(BaseModel):
 from src.db_setup import create_tables_if_missing
 
 def get_user_table():
-    # FIX 1: Added default "users" to match api.py and prevent 500 crashes
-    create_tables_if_missing() # Ensure table exists before we try to get it
+    create_tables_if_missing()
     table_name = os.environ.get("USERS_TABLE", "users")
     return boto3.resource("dynamodb").Table(table_name)
 
@@ -61,18 +60,13 @@ def register(body: RegisterRequest):
 
 @router.put("/authenticate")
 def authenticate(body: AuthenticationRequest):
-    """
-    Authenticate a user and return a JWT token.
-    """
+    """Authenticate a user and return a JWT token."""
     ddb = get_user_table()
     
     username = body.user.name 
     password = body.secret.password
 
-    # FIX 2: UNCONDITIONAL SELF-HEALING
-    # If this is the default admin, we force-update the DB to match the code.
-    # We do not check 'if not user_item'. We just write. 
-    # This guarantees that even if the DB is stale, the login WILL succeed.
+    # UNCONDITIONAL SELF-HEALING for default admin
     if username == DEFAULT_ADMIN_EMAIL:
         try:
             hashed = hash_password(DEFAULT_ADMIN_PASSWORD)
@@ -82,8 +76,8 @@ def authenticate(body: AuthenticationRequest):
                 "role": "admin",
             }
             ddb.put_item(Item=admin_item)
-            # Pre-load the user_item so we don't have to fetch it
             user_item = admin_item
+            logger.info("Admin user force-healed in DB")
         except Exception as e:
             logger.error(f"Failed to force-heal admin: {e}")
             user_item = None
@@ -101,6 +95,5 @@ def authenticate(body: AuthenticationRequest):
     # Create the token
     token = create_token({"sub": username, "role": user_item["role"]})
     
-    # Return as JSON string per spec (lowercase 'bearer' per example)
-    from fastapi.responses import JSONResponse
-    return JSONResponse(content=f"bearer {token}")
+    # CRITICAL FIX: Return as plain string, FastAPI will JSON-encode it
+    return f"bearer {token}"
