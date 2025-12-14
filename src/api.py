@@ -22,8 +22,9 @@ BUCKET_NAME = os.environ.get("BUCKET_NAME", "project-models-group102")
 MODELS_TABLE = os.environ.get("MODELS_TABLE", "models")
 AUDIT_TABLE = os.environ.get("AUDIT_TABLE", "audit_logs")
 USERS_TABLE = os.environ.get("USERS_TABLE", "users")
-DEFAULT_ADMIN_EMAIL = os.environ.get("DEFAULT_ADMIN_EMAIL", "admin@test.com")
-DEFAULT_ADMIN_PASSWORD = os.environ.get("DEFAULT_ADMIN_PASSWORD", "password")
+# Update the defaults to match the YAML example just in case
+DEFAULT_ADMIN_EMAIL = os.environ.get("DEFAULT_ADMIN_EMAIL", "ece30861defaultadminuser") 
+DEFAULT_ADMIN_PASSWORD = os.environ.get("DEFAULT_ADMIN_PASSWORD", "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;")
 
 logger = logging.getLogger("api_logger")
 logger.setLevel(logging.INFO)
@@ -407,5 +408,8 @@ async def get_cost(artifact_type: str, id: str, dependency: bool = False, user=D
         raise
     except Exception as e:
          raise HTTPException(status_code=500, detail=str(e))
+
+# FIX: Ensure the default admin exists immediately when the lambda loads
+initialize_default_admin()
 
 lambda_handler = Mangum(app)
