@@ -32,7 +32,8 @@ Parameters:
     Type: String
     Description: The default admin password
     NoEcho: true
-    Default: correcthorsebatterystaple123(!__+@**(A'"`;DROP TABLE artifacts;
+    Default: |
+      correcthorsebatterystaple123(!__+@**(A'"`;DROP TABLE artifacts;
 
 Resources:
 
