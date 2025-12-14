@@ -130,20 +130,20 @@ async def reset_system(user=Depends(require_role("admin"))):
         clear_dynamodb_table(models_table, partition_key="model_id")
         clear_dynamodb_table(audit_table, partition_key="timestamp", sort_key="event_type")
 
-        delete_response = s3_client.list_objects_v2(Bucket=BUCKET_NAME)
-        while delete_response.get("Contents"):
-            objects_to_delete = [{"Key": obj["Key"]} for obj in delete_response["Contents"]]
-            s3_client.delete_objects(
+        while True:
+            delete_response = s3_client.list_objects_v2(
                 Bucket=BUCKET_NAME,
-                Delete={"Objects": objects_to_delete}
+                MaxKeys=1000
             )
-            logger.info(f"Deleted {len(objects_to_delete)} objects from S3 bucket: {BUCKET_NAME}")
-        
-            if delete_response.get("IsTruncated"):
-                delete_response = s3_client.list_objects_v2(
+
+            if delete_response.get("Contents"):
+                objects_to_delete = [{"Key": obj["Key"]} for obj in delete_response["Contents"]]
+                
+                s3_client.delete_objects(
                     Bucket=BUCKET_NAME,
-                    ContinuationToken=delete_response.get("NextContinuationToken")
+                    Delete={"Objects": objects_to_delete}
                 )
+                logger.info(f"Deleted batch of {len(objects_to_delete)} objects from S3 bucket: {BUCKET_NAME}")
             else:
                 break
         logger.info(f"Successfully completed comprehensive S3 cleanup for bucket: {BUCKET_NAME}")
