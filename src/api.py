@@ -81,17 +81,19 @@ def convert_floats_to_decimal(obj):
 
 def scan_all_items(table):
     """
-   
-    Helper to strictly retrieve ALL items from a DynamoDB table by handling pagination.
-    This fixes the 'First 1MB' limit issue where tests fail randomly.
+    Helper to strictly retrieve ALL items with Strong Consistency.
+    Fixes 'Flaky Read' bugs where items appear missing immediately after upload.
     """
     items = []
-    response = table.scan()
+    # FIX: Added ConsistentRead=True
+    response = table.scan(ConsistentRead=True)
     items.extend(response.get("Items", []))
     
-    # Loop until LastEvaluatedKey is gone
     while 'LastEvaluatedKey' in response:
-        response = table.scan(ExclusiveStartKey=response['LastEvaluatedKey'])
+        response = table.scan(
+            ExclusiveStartKey=response['LastEvaluatedKey'],
+            ConsistentRead=True  # FIX: Consistent pagination
+        )
         items.extend(response.get("Items", []))
     
     return items
@@ -129,7 +131,6 @@ def log_audit_event(event_type: str, user_payload: dict, details: dict):
 def clear_dynamodb_table(table_obj, pk_name, sk_name=None):
     """Scans and deletes all items in a table."""
     try:
-        # Use our new helper to ensure we delete EVERYTHING
         items = scan_all_items(table_obj)
         with table_obj.batch_writer() as batch:
             for each in items:
@@ -159,6 +160,7 @@ async def reset_system(user=Depends(require_role("admin"))):
     """Reset the registry to a system default state."""
     try:
         create_tables_if_missing()
+        
         clear_dynamodb_table(models_table, "model_id")
         clear_dynamodb_table(audit_table, "timestamp", "event_type")
         clear_dynamodb_table(users_table, "email")
@@ -192,7 +194,8 @@ async def create_artifact(
         model_name = metrics.get("name") or body.url.split("/")[-1]
         artifact_id = str(uuid4())
 
-        existing = models_table.get_item(Key={"model_id": artifact_id})
+        # FIX: Consistent Read to ensure we don't duplicate if called rapidly
+        existing = models_table.get_item(Key={"model_id": artifact_id}, ConsistentRead=True)
         if existing.get("Item"):
             raise HTTPException(status_code=409, detail="Artifact exists already")
 
@@ -244,14 +247,12 @@ async def list_artifacts(
     
     offset_param = request.query_params.get("offset")
     start_index = int(offset_param) if offset_param and offset_param.isdigit() else 0
-    
-    # FIX: Increase Page Size to avoid lazy-client errors
     PAGE_SIZE = 100
     
     query = query_list[0]
     
     try:
-        # FIX: Use scan_all_items to ensure we don't miss anything
+        # Strong Consistency Scan
         items = scan_all_items(models_table)
         
         filtered_results = []
@@ -301,7 +302,7 @@ async def list_artifacts_regex(
     try:
         pattern = re.compile(body.regex)
         
-        # FIX: Use scan_all_items
+        # Strong Consistency Scan
         items = scan_all_items(models_table)
         
         results = []
@@ -333,7 +334,7 @@ async def get_artifact_by_name(
     user=Depends(require_role("admin", "uploader", "viewer"))
 ):
     try:
-        # FIX: Use scan_all_items
+        # Strong Consistency Scan
         items = scan_all_items(models_table)
         
         results = []
@@ -362,7 +363,8 @@ async def get_artifact(
     user=Depends(require_role("admin", "uploader", "viewer"))
 ):
     try:
-        response = models_table.get_item(Key={"model_id": id})
+        # FIX: Consistent Read
+        response = models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
         item = response.get("Item")
         
         if not item:
@@ -394,7 +396,8 @@ async def update_artifact(
     user=Depends(require_role("admin", "uploader"))
 ):
     try:
-        existing = models_table.get_item(Key={"model_id": id})
+        # FIX: Consistent Read
+        existing = models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
         if not existing.get("Item"):
             raise HTTPException(status_code=404, detail="Artifact does not exist")
         
@@ -435,7 +438,8 @@ async def delete_artifact(
     user=Depends(require_role("admin"))
 ):
     try:
-        existing = models_table.get_item(Key={"model_id": id})
+        # FIX: Consistent Read
+        existing = models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
         if not existing.get("Item"):
             raise HTTPException(status_code=404, detail="Artifact does not exist")
             
@@ -449,7 +453,8 @@ async def delete_artifact(
 @app.get("/artifact/model/{id}/rate")
 async def get_rating(id: str, user=Depends(require_role("admin", "uploader", "viewer"))):
     try:
-        response = models_table.get_item(Key={"model_id": id})
+        # FIX: Consistent Read
+        response = models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
         item = response.get("Item")
         
         if not item:
@@ -501,7 +506,8 @@ async def get_lineage(
     user=Depends(require_role("admin", "uploader", "viewer"))
 ):
     try:
-        response = models_table.get_item(Key={"model_id": id})
+        # FIX: Consistent Read for root
+        response = models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
         item = response.get("Item")
         if not item:
             raise HTTPException(status_code=404, detail="Artifact does not exist")
@@ -516,8 +522,8 @@ async def get_lineage(
                 return
             visited.add(artifact_id)
             try:
-                # FIX: Handle missing lineage nodes gracefully
-                art_resp = models_table.get_item(Key={"model_id": artifact_id})
+                # FIX: Consistent Read for recursion
+                art_resp = models_table.get_item(Key={"model_id": artifact_id}, ConsistentRead=True)
                 art = art_resp.get("Item")
                 if art:
                     nodes.append({
@@ -526,7 +532,6 @@ async def get_lineage(
                         "source": source
                     })
                 else:
-                    # Add Stub node if missing in DB
                     nodes.append({
                         "artifact_id": artifact_id,
                         "name": f"artifact-{artifact_id}", 
@@ -563,6 +568,9 @@ async def get_lineage(
         logger.exception("Lineage fetch error")
         raise HTTPException(status_code=400, detail="The lineage graph cannot be computed because the artifact metadata is missing or malformed")
 
+# ... rest of file (license-check, cost) ...
+# (Ensure license-check and cost also use ConsistentRead if they fetch items)
+
 @app.post("/artifact/model/{id}/license-check")
 async def check_license_compatibility(
     id: str,
@@ -570,7 +578,8 @@ async def check_license_compatibility(
     user=Depends(require_role("admin", "uploader", "viewer"))
 ):
     try:
-        response = models_table.get_item(Key={"model_id": id})
+        # FIX: Consistent Read
+        response = models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
         item = response.get("Item")
         if not item:
             raise HTTPException(status_code=404, detail="The artifact or GitHub project could not be found")
@@ -597,7 +606,8 @@ async def get_cost(
     user=Depends(require_role("admin", "uploader", "viewer"))
 ):
     try:
-        response = models_table.get_item(Key={"model_id": id})
+        # FIX: Consistent Read
+        response = models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
         item = response.get("Item")
         if not item:
              raise HTTPException(status_code=404, detail="Artifact does not exist")
@@ -619,7 +629,8 @@ async def get_cost(
                 if artifact_id in visited: return 0.0
                 visited.add(artifact_id)
                 try:
-                    art = models_table.get_item(Key={"model_id": artifact_id}).get("Item")
+                    # FIX: Consistent Read
+                    art = models_table.get_item(Key={"model_id": artifact_id}, ConsistentRead=True).get("Item")
                     if not art: return 0.0
                     art_size = int(art.get("size", 100))
                     art_cost = round(art_size / 1024 / 1024, 2)
