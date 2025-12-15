@@ -223,7 +223,7 @@ async def get_tracks():
 async def reset_system(user=Depends(require_role("admin"))):
     try:
         create_tables_if_missing()
-        clear_dynamodb_table(models_table, "artifact_id")
+        clear_dynamodb_table(models_table, "model_id")
         clear_dynamodb_table(audit_table, "timestamp", "event_type")
         clear_dynamodb_table(users_table, "email")
         try:
@@ -257,14 +257,14 @@ async def create_artifact(
         # ---------------------------------------------------
 
         def check_existing():
-            return models_table.get_item(Key={"artifact_id": artifact_id}, ConsistentRead=True)
+            return models_table.get_item(Key={"model_id": artifact_id}, ConsistentRead=True)
         
         existing = make_robust_request(check_existing)
         if existing and existing.get("Item"):
             raise HTTPException(status_code=409, detail="Artifact exists already")
 
         item = {
-            "artifact_id": artifact_id,
+            "model_id": artifact_id,
             "name": model_name,
             "type": artifact_type,
             "url": body.url,
@@ -283,7 +283,7 @@ async def create_artifact(
             for parent_id in body.parent_artifact_ids:
                 try:
                     models_table.update_item(
-                        Key={"artifact_id": parent_id},
+                        Key={"model_id": parent_id},
                         UpdateExpression="ADD #lineage_key.#children_key :child_id",
                         ExpressionAttributeNames={
                             "#lineage_key": "lineage",
@@ -387,7 +387,7 @@ async def list_artifacts(
             if name_match:
                 filtered_results.append({
                     "name": item.get("name"),
-                    "id": item.get("artifact_id"), 
+                    "id": item.get("model_id"), 
                     "type": item.get("type", "model")
                 })
         
@@ -432,7 +432,7 @@ async def list_artifacts_regex(
             if pattern.search(item_dump):
                  results.append({
                     "name": item.get("name"),
-                    "id": item.get("artifact_id"),
+                    "id": item.get("model_id"),
                     "type": item.get("type", "model")
                 })
         
@@ -466,13 +466,13 @@ async def get_artifact_by_name(
         seen = set()
         unique_results = []
         for item in results:
-            if item.get("artifact_id") not in seen:
+            if item.get("model_id") not in seen:
                 unique_results.append({
                     "name": item.get("name"),
-                    "id": item.get("artifact_id"),
+                    "id": item.get("model_id"),
                     "type": item.get("type", "model")
                 })
-                seen.add(item.get("artifact_id"))
+                seen.add(item.get("model_id"))
 
         if not unique_results:
             raise HTTPException(status_code=404, detail="No such artifact")
@@ -494,7 +494,7 @@ async def get_artifact(
         # FIX: Reverted to Direct Lookup (Lean)
         # Scan is too slow here.
         def get_op():
-            return models_table.get_item(Key={"artifact_id": id}, ConsistentRead=True)
+            return models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
         response = make_robust_request(get_op)
         item = response.get("Item") if response else None
         
@@ -504,7 +504,7 @@ async def get_artifact(
         download_url = f"{str(request.base_url)}download/{item.get('model_id')}"
 
         return {
-            "metadata": {"name": item.get("name"), "id": item.get("artifact_id"), "type": item.get("type")},
+            "metadata": {"name": item.get("name"), "id": item.get("model_id"), "type": item.get("type")},
             "data": {"url": item.get("url"), "download_url": download_url}
         }
     except HTTPException:
@@ -521,7 +521,7 @@ async def update_artifact(
 ):
     try:
         def get_op():
-            return models_table.get_item(Key={"artifact_id": id}, ConsistentRead=True)
+            return models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
         existing = make_robust_request(get_op)
         item = existing.get("Item") if existing else None
         
@@ -563,8 +563,7 @@ async def delete_artifact(
     try:
         # 1. Check if the artifact exists and get its details (especially URL/S3 key)
         def get_op():
-            # KEY FIX: Use "artifact_id"
-            return models_table.get_item(Key={"artifact_id": id}, ConsistentRead=True) 
+            return models_table.get_item(Key={"model_id": id}, ConsistentRead=True) 
         
         response = make_robust_request(get_op)
         item = response.get("Item") if response else None
@@ -582,7 +581,7 @@ async def delete_artifact(
             # Assuming the S3 key is the artifact_id or part of the URL/download_info
             
             # Use the artifact_id as the S3 Key (a common convention)
-            s3_key = f"{item.get('artifact_id')}/{item.get('name')}.zip" # Example key derivation
+            s3_key = f"{item.get('model_id')}/{item.get('name')}.zip" # Example key derivation
             
             # OR, if you use a specific field like "s3_key" in item.get("download_info", {})
             # s3_key = item.get("download_info", {}).get("s3_key")
@@ -597,7 +596,7 @@ async def delete_artifact(
                     # Decide if S3 failure should stop DB delete. Usually, NO. Log and continue.
 
         # 3. CRITICAL FIX: Delete the item from the database
-        make_robust_request(lambda: models_table.delete_item(Key={"artifact_id": id}))
+        make_robust_request(lambda: models_table.delete_item(Key={"model_id": id}))
         
         # 4. FIX 3: Log and return 204 No Content
         log_audit_event("DELETE", user, {"id": id})
@@ -612,8 +611,7 @@ async def delete_artifact(
 async def get_rating(id: str, user=Depends(require_role("admin", "uploader", "viewer"))):
     try:
         def get_op():
-            # KEY FIX: Use "artifact_id"
-            return models_table.get_item(Key={"artifact_id": id}, ConsistentRead=True)
+            return models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
         response = make_robust_request(get_op)
         item = response.get("Item") if response else None
         
@@ -702,7 +700,7 @@ async def get_lineage(
 ):
     # 1. Try to fetch the root item - CRITICAL FIX: Use "artifact_id"
     def get_op():
-        return models_table.get_item(Key={"artifact_id": id}, ConsistentRead=True)
+        return models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
     
     response = make_robust_request(get_op)
     root_item = response.get("Item") if response else None
@@ -726,7 +724,7 @@ async def get_lineage(
         if not found_name:
             try:
                 # Use Direct Lookup for efficiency here
-                resp = models_table.get_item(Key={"artifact_id": artifact_id})
+                resp = models_table.get_item(Key={"model_id": artifact_id})
                 if "Item" in resp:
                     found_name = resp["Item"].get("name")
             except:
@@ -736,13 +734,12 @@ async def get_lineage(
             found_name = f"artifact-{artifact_id}"
 
         nodes.append({
-            "artifact_id": artifact_id,
+            "model_id": artifact_id,
             "name": found_name,
             "source": source
         })
 
-    # 2. Add Root Node - CRITICAL FIX: Use "artifact_id"
-    add_node_safe(root_item['artifact_id'], root_item.get('name'), "config_json")
+    add_node_safe(root_item['model_id'], root_item.get('name'), "config_json")
 
     # 3. Parse Metadata for "Ghost" Dependencies (External artifacts, e.g., Hugging Face)
     meta = root_item.get("metadata", {})
@@ -763,8 +760,8 @@ async def get_lineage(
         ext_id = f"hf:model:{bm}" 
         add_node_safe(ext_id, bm, "config_json")
         edges.append({
-            "from_node_artifact_id": ext_id,
-            "to_node_artifact_id": id,
+            "from_node_model_id": ext_id,
+            "to_node_model_id": id,
             "relationship": "base_model"
         })
 
@@ -773,8 +770,8 @@ async def get_lineage(
         ext_id = f"hf:dataset:{ds}"
         add_node_safe(ext_id, ds, "config_json")
         edges.append({
-            "from_node_artifact_id": ext_id,
-            "to_node_artifact_id": id,
+            "from_node_model_id": ext_id,
+            "to_node_model_id": id,
             "relationship": "fine_tuning_dataset"
         })
 
@@ -787,7 +784,7 @@ async def get_lineage(
     
     while queue:
         current_item = queue.pop(0) 
-        current_artifact_id = current_item.get("artifact_id")
+        current_artifact_id = current_item.get("model_id")
 
         lineage = current_item.get("lineage", {})
 
@@ -799,7 +796,7 @@ async def get_lineage(
 
                 try:
                     # Fetch the parent item to get its lineage and continue traversal
-                    resp = models_table.get_item(Key={"artifact_id": parent_id}, ConsistentRead=True)
+                    resp = models_table.get_item(Key={"model_id": parent_id}, ConsistentRead=True)
                     if "Item" in resp:
                         queue.append(resp["Item"])
                         processed_db_ids.add(parent_id)
@@ -808,8 +805,8 @@ async def get_lineage(
 
             # Add the edge (Parent -> Current)
             edges.append({
-                "from_node_artifact_id": parent_id,
-                "to_node_artifact_id": current_artifact_id,
+                "from_node_model_id": parent_id,
+                "to_node_model_id": current_artifact_id,
                 "relationship": "dependency"
             })
 
@@ -821,7 +818,7 @@ async def get_lineage(
 
                 try:
                     # Fetch the child item to get its lineage and continue traversal
-                    resp = models_table.get_item(Key={"artifact_id": child_id}, ConsistentRead=True)
+                    resp = models_table.get_item(Key={"model_id": child_id}, ConsistentRead=True)
                     if "Item" in resp:
                         queue.append(resp["Item"])
                         processed_db_ids.add(child_id)
@@ -830,8 +827,8 @@ async def get_lineage(
 
             # Add the edge (Current -> Child)
             edges.append({
-                "from_node_artifact_id": current_artifact_id,
-                "to_node_artifact_id": child_id,
+                "from_node_model_id": current_artifact_id,
+                "to_node_model_id": child_id,
                 "relationship": "dependency"
             })
     
@@ -846,7 +843,7 @@ async def check_license_compatibility(
 ):
     try:
         def get_op():
-            return models_table.get_item(Key={"artifact_id": id}, ConsistentRead=True)
+            return models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
         response = make_robust_request(get_op)
         item = response.get("Item") if response else None
         
