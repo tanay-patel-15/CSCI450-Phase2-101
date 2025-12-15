@@ -262,3 +262,105 @@ class ArtifactMetrics(BaseModel):
         score += weights.get("size_score", 0) * size_avg
         
         return round(score, 3)
+    
+    """
+Metrics computation for artifacts.
+"""
+import logging
+from typing import Dict, Any
+
+logger = logging.getLogger(__name__)
+
+
+def compute_metrics_for_model(url: str) -> Dict[str, Any]:
+    """
+    Compute metrics for an artifact given its URL.
+    
+    For now, returns placeholder metrics. In a full implementation,
+    this would fetch the repo/model and analyze it.
+    
+    Args:
+        url: GitHub or HuggingFace URL of the artifact
+        
+    Returns:
+        Dictionary of metrics with phase1 and phase2 nested structure
+    """
+    try:
+        # Extract name from URL
+        name = url.rstrip('/').split('/')[-1]
+        
+        # Return placeholder metrics that match the expected structure
+        return {
+            "name": name,
+            "phase1": {
+                "ramp_up_time": 0.5,
+                "bus_factor": 0.5,
+                "license_score": 0.5,
+                "performance_claims": 0.5,
+                "dataset_and_code_score": 0.5,
+                "dataset_quality": 0.5,
+                "code_quality": 0.5,
+                "size_score": {
+                    "raspberry_pi": 0.5,
+                    "jetson_nano": 0.5,
+                    "desktop_pc": 0.5,
+                    "aws_server": 0.5
+                },
+                "net_score": 0.5
+            },
+            "phase2": {
+                "reproducibility": 0.5,
+                "reviewedness": 0.5,
+                "treescale_score": 0.5,
+                "latency_ms": 0
+            },
+            # Also include flat structure for backward compatibility
+            "net_score": 0.5,
+            "ramp_up_time": 0.5,
+            "bus_factor": 0.5,
+            "license": 0.5,
+            "license_score": 0.5,
+            "performance_claims": 0.5,
+            "dataset_and_code_score": 0.5,
+            "dataset_quality": 0.5,
+            "code_quality": 0.5,
+            "net_score_latency": 0.0,
+            "ramp_up_time_latency": 0.0,
+            "bus_factor_latency": 0.0,
+            "license_latency": 0.0,
+            "performance_claims_latency": 0.0,
+            "dataset_and_code_score_latency": 0.0,
+            "dataset_quality_latency": 0.0,
+            "code_quality_latency": 0.0
+        }
+    except Exception as e:
+        logger.exception(f"Error computing metrics for {url}")
+        # Return minimal valid metrics on error
+        return {
+            "name": url.split('/')[-1] if url else "unknown",
+            "phase1": {
+                "ramp_up_time": 0.5,
+                "bus_factor": 0.5,
+                "license_score": 0.5,
+                "performance_claims": 0.5,
+                "dataset_and_code_score": 0.5,
+                "dataset_quality": 0.5,
+                "code_quality": 0.5,
+                "size_score": {
+                    "raspberry_pi": 0.5,
+                    "jetson_nano": 0.5,
+                    "desktop_pc": 0.5,
+                    "aws_server": 0.5
+                },
+                "net_score": 0.5
+            },
+            "phase2": {
+                "reproducibility": 0.5,
+                "reviewedness": 0.5,
+                "treescale_score": 0.5,
+                "latency_ms": 0
+            },
+            "net_score": 0.5,
+            "license": 0.5,
+            "license_score": 0.5
+        }

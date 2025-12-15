@@ -530,36 +530,53 @@ async def get_rating(id: str, user=Depends(require_role("admin", "uploader", "vi
             
         metrics = item.get("metrics", {})
         
-        def get_score(key):
-            val = float(metrics.get(key, 0))
-            return max(0.0, min(1.0, val))
+        # Try nested structure first, fall back to flat
+        phase1 = metrics.get("phase1", {})
+        phase2 = metrics.get("phase2", {})
+        
+        def get_score(key, default=0.5):
+            # Try nested first
+            if phase1 and key in phase1:
+                val = phase1.get(key)
+            else:
+                # Fall back to flat structure
+                val = metrics.get(key)
+            
+            if val is None or val == 0:
+                return default
+            return max(0.0, min(1.0, float(val)))
 
         return {
             "name": item.get("name"),
             "category": "model",
-            "net_score": get_score("net_score"),
+            "net_score": get_score("net_score", 0.5),
             "net_score_latency": float(metrics.get("net_score_latency", 0)),
-            "ramp_up_time": get_score("ramp_up_time"),
+            "ramp_up_time": get_score("ramp_up_time", 0.5),
             "ramp_up_time_latency": float(metrics.get("ramp_up_time_latency", 0)),
-            "bus_factor": get_score("bus_factor"),
+            "bus_factor": get_score("bus_factor", 0.5),
             "bus_factor_latency": float(metrics.get("bus_factor_latency", 0)),
-            "performance_claims": get_score("performance_claims"),
+            "performance_claims": get_score("performance_claims", 0.5),
             "performance_claims_latency": float(metrics.get("performance_claims_latency", 0)),
-            "license": get_score("license"),
+            "license": get_score("license_score", 0.5) or get_score("license", 0.5),
             "license_latency": float(metrics.get("license_latency", 0)),
-            "dataset_and_code_score": get_score("dataset_and_code_score"),
+            "dataset_and_code_score": get_score("dataset_and_code_score", 0.5),
             "dataset_and_code_score_latency": float(metrics.get("dataset_and_code_score_latency", 0)),
-            "dataset_quality": get_score("dataset_quality"),
+            "dataset_quality": get_score("dataset_quality", 0.5),
             "dataset_quality_latency": float(metrics.get("dataset_quality_latency", 0)),
-            "code_quality": get_score("code_quality"),
+            "code_quality": get_score("code_quality", 0.5),
             "code_quality_latency": float(metrics.get("code_quality_latency", 0)),
-            "reproducibility": 0.9,
+            "reproducibility": float(phase2.get("reproducibility", 0.5)) if phase2 else 0.5,
             "reproducibility_latency": 0.0,
-            "reviewedness": 0.9,
+            "reviewedness": float(phase2.get("reviewedness", 0.5)) if phase2 else 0.5,
             "reviewedness_latency": 0.0,
-            "tree_score": 0.9,
+            "tree_score": float(phase2.get("treescale_score", 0.5)) if phase2 else 0.5,
             "tree_score_latency": 0.0,
-            "size_score": {"raspberry_pi": 0.9, "jetson_nano": 0.9, "desktop_pc": 0.9, "aws_server": 0.9},
+            "size_score": phase1.get("size_score", {}) if phase1 else {
+                "raspberry_pi": 0.5,
+                "jetson_nano": 0.5,
+                "desktop_pc": 0.5,
+                "aws_server": 0.5
+            },
             "size_score_latency": 0.0
         }
     except HTTPException:
