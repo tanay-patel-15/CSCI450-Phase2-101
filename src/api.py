@@ -345,24 +345,40 @@ async def list_artifacts_regex(
         raise HTTPException(status_code=400, detail="Missing regex")
     
     try:
-        logger.info(f"DEBUG REGEX: Pattern='{body.regex}'")
-        pattern = re.compile(body.regex, re.IGNORECASE)
+        # 1. Compile the Regex with IGNORECASE and DOTALL (for multiline matches)
+        pattern = re.compile(body.regex, re.IGNORECASE | re.DOTALL)
+        
+        # 2. Scan all items (assuming scan_all_items handles pagination)
         items = scan_all_items(models_table)
         
         results = []
         for item in items:
-            # FIX: Search ANY string field in the item (Omni-Search)
-            # This covers name, url, id, license, etc.
-            item_dump = str(item)
             
-            if pattern.search(item_dump):
-                 results.append({
+            # --- START FIX: Search targeted string fields explicitly ---
+            
+            # Fields to search: name (required) and metrics (contains descriptive text)
+            fields_to_search = [
+                item.get("name", ""),
+                str(item.get("metrics", {})) # Convert the metrics map to a string for search
+            ]
+            
+            is_match = False
+            for text in fields_to_search:
+                if pattern.search(text):
+                    is_match = True
+                    break # Stop searching once a match is found in any field
+            
+            if is_match:
+                results.append({
                     "name": item.get("name"),
-                    "id": item.get("model_id"),
+                    "id": item.get("model_id"), # Use the correct ID key
                     "type": item.get("type", "model")
                 })
-        
+            
+            # --- END FIX ---
+            
         if not results:
+            # This handles the "Random String Regex Test failed!" case by returning 404
             raise HTTPException(status_code=404, detail="No artifact found under this regex")
         
         return results
@@ -371,7 +387,8 @@ async def list_artifacts_regex(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Regex search failed")
+        raise HTTPException(status_code=500, detail="Regex search failed")
 
 @app.get("/artifact/byName/{name}")
 async def get_artifact_by_name(
@@ -393,11 +410,7 @@ async def get_artifact_by_name(
         unique_results = []
         for item in results:
             if item.get("model_id") not in seen:
-                unique_results.append({
-                    "name": item.get("name"),
-                    "id": item.get("model_id"),
-                    "type": item.get("type", "model")
-                })
+                unique_results.append(item)
                 seen.add(item.get("model_id"))
 
         if not unique_results:
@@ -428,14 +441,13 @@ async def get_artifact(
             raise HTTPException(status_code=404, detail="Artifact does not exist")
         
         download_url = f"{str(request.base_url)}download/{item.get('model_id')}"
+        item["download_url"] = download_url
 
-        return {
-            "metadata": {"name": item.get("name"), "id": item.get("model_id"), "type": item.get("type")},
-            "data": {"url": item.get("url"), "download_url": download_url}
-        }
+        return item
     except HTTPException:
         raise
     except Exception as e:
+        logger.exception("Get artifact failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.put("/artifacts/{artifact_type}/{id}")
@@ -568,28 +580,40 @@ async def get_lineage(
     visited_ids = set()
 
     # Helper to add a node safely
-    def add_node_safe(artifact_id, name=None, source="registry"):
+    def add_node_safe(artifact_id, name=None, artifact_type=None, source="registry"):
         if artifact_id in visited_ids:
             return
         visited_ids.add(artifact_id)
         
-        # Try to find it in DB to get real name
-        found_name = name
-        if not found_name:
-            try:
-                resp = models_table.get_item(Key={"model_id": artifact_id})
-                if "Item" in resp:
-                    found_name = resp["Item"].get("name")
-            except:
-                pass
-        
-        # Fallback name if not in DB
-        if not found_name:
-            found_name = f"artifact-{artifact_id}"
+        found_item = None
+    
+        # 1. Try to find the item in DB
+        try:
+            resp = models_table.get_item(Key={"model_id": artifact_id})
+            found_item = resp.get("Item")
+        except:
+            pass
+
+        if found_item:
+            found_name = found_item.get("name")
+            artifact_type = found_item.get("type") # Get type from DB for registry items
+        else:
+            # 2. Handle external/ghost nodes
+            found_name = name or f"artifact-{artifact_id}"
+            # For ghost nodes, the 'type' must be inferred/passed in
+            if not artifact_type:
+                 # Try to infer type from the ID prefix if not explicitly passed
+                if artifact_id.startswith("hf:model:"):
+                    artifact_type = "model"
+                elif artifact_id.startswith("hf:dataset:"):
+                    artifact_type = "dataset"
+                else:
+                    artifact_type = "unknown" # Fallback
 
         nodes.append({
             "artifact_id": artifact_id,
             "name": found_name,
+            "type": artifact_type,
             "source": source
         })
 
