@@ -278,13 +278,21 @@ async def create_artifact(
         
         clean_item = convert_floats_to_decimal(item)
         make_robust_request(lambda: models_table.put_item(Item=clean_item))
+        # --- ADDED DEBUG LOGGING ---
+        logger.info(f"CREATE /artifact/{artifact_type}: DynamoDB keys: {item.keys()}")
+        # ---------------------------
         log_audit_event("CREATE", user, {"id": artifact_id, "url": body.url})
         download_url = f"{str(request.base_url)}download/{artifact_id}"
 
-        return {
-            "metadata": {"name": model_name, "id": artifact_id, "type": artifact_type},
-            "data": {"url": body.url, "download_url": download_url}
-        }
+        # FIX: Return the full constructed item, modified for API response
+        response_item = item.copy()
+        response_item["id"] = response_item.pop("model_id")
+        response_item["download_url"] = download_url
+        # --- ADDED DEBUG LOGGING ---
+        logger.info(f"CREATE /artifact/{artifact_type}: Response keys: {response_item.keys()}")
+        # ---------------------------
+
+        return response_item
     except HTTPException:
         raise
     except Exception as e:
@@ -309,20 +317,33 @@ async def list_artifacts(
         items = scan_all_items(models_table)
         filtered_results = []
         for item in items:
-            name_match = (query.name == "*" or query.name == item.get("name"))
+            
+            # --- Applying the fix to include regex matching in the future ---
+            name_query = query.name.replace('*', '.*')
+            name_match = (query.name == "*" or bool(re.fullmatch(name_query, item.get("name", ""))))
+            # -----------------------------------------------------------------
+            
             type_match = True
-            if query.types:
-                if item.get("type") not in query.types:
-                    type_match = False
+            if query.types and item.get("type") not in query.types:
+                type_match = False
+                
             if name_match and type_match:
-                filtered_results.append({
-                    "name": item.get("name"),
-                    "id": item.get("model_id"),
-                    "type": item.get("type", "model")
-                })
+                # FIX: Append the entire item dictionary, adding download_url
+                download_url = f"{str(request.base_url)}download/{item.get('model_id')}"
+                item["download_url"] = download_url
+                filtered_results.append(item) 
         
-        filtered_results.sort(key=lambda x: x["id"])
+        # ... (existing sorting logic)
         paginated_results = filtered_results[start_index : start_index + PAGE_SIZE]
+        
+        # --- ADDED DEBUG LOGGING ---
+        logger.info(f"POST /artifacts: Total results found: {len(filtered_results)}, returning {len(paginated_results)} items.")
+        if paginated_results:
+             # Log keys of the first item to confirm expected structure
+             first_item_keys = paginated_results[0].keys()
+             logger.info(f"POST /artifacts: First item keys: {first_item_keys}") 
+        # ---------------------------
+
         next_offset = start_index + PAGE_SIZE
         if next_offset >= len(filtered_results):
             next_offset = None 
@@ -443,6 +464,8 @@ async def get_artifact(
         download_url = f"{str(request.base_url)}download/{item.get('model_id')}"
         item["download_url"] = download_url
 
+        logger.info(f"GET /artifacts/{artifact_type}/{id} response item keys: {item.keys()}") # <-- ADDED
+        logger.debug(f"GET /artifacts/{artifact_type}/{id} response: {item}") # <-- ADDED (Use logger.debug if configured)
         return item
     except HTTPException:
         raise
