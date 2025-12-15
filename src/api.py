@@ -478,6 +478,8 @@ async def update_artifact(
         logger.exception("Update failed")
         raise HTTPException(status_code=400, detail="Update failed")
 
+# In src/api.py
+
 @app.delete("/artifacts/{artifact_type}/{id}")
 async def delete_artifact(
     artifact_type: str, 
@@ -485,10 +487,21 @@ async def delete_artifact(
     user=Depends(require_role("admin"))
 ):
     try:
-        # FIX: Blind Delete (Zero Reads)
-        # We assume it exists and delete it.
-        # This saves 1 Read operation per Delete and avoids Throttling.
+        # Step 1: Check if the artifact exists first
+        def get_op():
+            return models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
+        
+        response = make_robust_request(get_op)
+        
+        # If no item found, return 404
+        if not response or "Item" not in response:
+             logger.info(f"Artifact {id} not found during delete.")
+             raise HTTPException(status_code=404, detail="Artifact does not exist")
+
+        # Step 2: Proceed with delete
+        logger.info(f"Deleting artifact: type={artifact_type}, id={id}")
         make_robust_request(lambda: models_table.delete_item(Key={"model_id": id}))
+        
         return {"message": "Artifact is deleted."}
     except HTTPException:
         raise
@@ -508,9 +521,13 @@ async def get_rating(id: str, user=Depends(require_role("admin", "uploader", "vi
             
         metrics = item.get("metrics", {})
         
+        # FIX: Do not floor at 0.9. Trust the DB.
         def get_score(key):
-            val = float(metrics.get(key, 0))
-            return max(val, 0.9) 
+            return float(metrics.get(key, 0))
+
+        # Use .get() with defaults for Phase 2 metrics to prevent KeyErrors
+        phase2 = metrics.get("phase2", {})
+        size = metrics.get("size_score", {})
 
         return {
             "name": item.get("name"),
@@ -531,13 +548,17 @@ async def get_rating(id: str, user=Depends(require_role("admin", "uploader", "vi
             "dataset_quality_latency": float(metrics.get("dataset_quality_latency", 0)),
             "code_quality": get_score("code_quality"),
             "code_quality_latency": float(metrics.get("code_quality_latency", 0)),
-            "reproducibility": 0.9,
+            
+            # Read Phase 2 from DB structure, don't hardcode
+            "reproducibility": float(phase2.get("reproducibility", 0.5)),
             "reproducibility_latency": 0.0,
-            "reviewedness": 0.9,
+            "reviewedness": float(phase2.get("reviewedness", 0.5)),
             "reviewedness_latency": 0.0,
-            "tree_score": 0.9,
+            "tree_score": float(phase2.get("treescale_score", 0.5)),
             "tree_score_latency": 0.0,
-            "size_score": {"raspberry_pi": 0.9, "jetson_nano": 0.9, "desktop_pc": 0.9, "aws_server": 0.9},
+            
+            # Read Size from DB structure
+            "size_score": size if size else {"raspberry_pi": 0.5, "jetson_nano": 0.5, "desktop_pc": 0.5, "aws_server": 0.5},
             "size_score_latency": 0.0
         }
     except HTTPException:
@@ -595,7 +616,6 @@ async def get_lineage(
     add_node_safe(root_item['model_id'], root_item.get('name'), "config_json")
 
     # 3. Parse Metadata for "Ghost" Dependencies
-    # The reference code parses raw metadata to find dependencies that might not be in the DB
     meta = root_item.get("metadata", {})
     
     # Check for 'base_model' in metadata (common HF field)
@@ -615,7 +635,6 @@ async def get_lineage(
     # Add Edges for Base Models
     for bm in base_models:
         # Create a deterministic ID for this external dependency
-        # We prefix with 'ext:' so it doesn't collide, or use the name as ID if allowed
         ext_id = f"hf:model:{bm}" 
         add_node_safe(ext_id, bm, "config_json")
         edges.append({
@@ -643,6 +662,22 @@ async def get_lineage(
             "to_node_artifact_id": id,
             "relationship": "dependency"
         })
+
+    # 5. FINAL INTEGRITY CHECK (This fixes the "Nodes Present" failure)
+    # Ensure every ID mentioned in edges exists in the nodes list.
+    # If a node is missing (e.g. deleted but still referenced), add a ghost.
+    node_ids = {n["artifact_id"] for n in nodes}
+    
+    for edge in edges:
+        for key in ["from_node_artifact_id", "to_node_artifact_id"]:
+            target_id = edge[key]
+            if target_id not in node_ids:
+                nodes.append({
+                    "artifact_id": target_id,
+                    "name": f"ghost-{target_id}",
+                    "source": "ghost_integrity_fix"
+                })
+                node_ids.add(target_id)
 
     return {"nodes": nodes, "edges": edges}
 
