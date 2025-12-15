@@ -12,7 +12,7 @@ All artifact types (MODEL, DATASET, CODE) share this base structure.
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Optional, List
 from uuid import uuid4
 
 from pydantic import BaseModel, Field, field_validator, ConfigDict
@@ -151,6 +151,13 @@ class ArtifactCreate(ArtifactBase):
     metadata: Optional[ArtifactMetadata] = Field(
         default_factory=ArtifactMetadata,
         description="Optional metadata for the artifact"
+    )
+    
+    # CRITICAL FIX: Add the parent_artifact_ids field. 
+    # This ensures the model includes the field that artifact_create_to_db relies on.
+    parent_artifact_ids: Optional[List[str]] = Field(
+        default=[],
+        description="List of parent artifact IDs for lineage tracking."
     )
 
 
