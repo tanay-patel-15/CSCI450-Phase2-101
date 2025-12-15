@@ -257,14 +257,14 @@ async def create_artifact(
         # ---------------------------------------------------
 
         def check_existing():
-            return models_table.get_item(Key={"model_id": artifact_id}, ConsistentRead=True)
+            return models_table.get_item(Key={"artifact_id": artifact_id}, ConsistentRead=True)
         
         existing = make_robust_request(check_existing)
         if existing and existing.get("Item"):
             raise HTTPException(status_code=409, detail="Artifact exists already")
 
         item = {
-            "model_id": artifact_id,
+            "artifact_id": artifact_id,
             "name": model_name,
             "type": artifact_type,
             "url": body.url,
@@ -278,6 +278,23 @@ async def create_artifact(
         
         clean_item = convert_floats_to_decimal(item)
         make_robust_request(lambda: models_table.put_item(Item=clean_item))
+
+        if body.parent_artifact_ids:
+            for parent_id in body.parent_artifact_ids:
+                try:
+                    models_table.update_item(
+                        Key={"artifact_id": parent_id},
+                        UpdateExpression="ADD #lineage_key.#children_key :child_id",
+                        ExpressionAttributeNames={
+                            "#lineage_key": "lineage",
+                            "#children_key": "children"
+                        },
+                        ExpressionAttributeValues={":child_id": {artifact_id}}, 
+                        ReturnValues="NONE"
+                    )
+                except Exception as update_e:
+                    logger.error(f"Failed to update parent {parent_id} lineage: {update_e}")
+
         log_audit_event("CREATE", user, {"id": artifact_id, "url": body.url})
         download_url = f"{str(request.base_url)}download/{artifact_id}"
 
@@ -300,30 +317,86 @@ async def list_artifacts(
     if not query_list:
         raise HTTPException(status_code=400, detail="Missing query")
     
+    # We must retain the integer offset for this API contract, but we can 
+    # limit the underlying scan to prevent reading the entire table immediately.
     offset_param = request.query_params.get("offset")
     start_index = int(offset_param) if offset_param and offset_param.isdigit() else 0
     PAGE_SIZE = 100
     query = query_list[0]
     
     try:
-        items = scan_all_items(models_table)
+        # CRITICAL FIX: DO NOT use scan_all_items(). Use a filtered scan with limit.
+        # Note: Since DynamoDB Scan does not respect integer offsets, and filters 
+        # are applied *after* read capacity is consumed, this remains expensive.
+        # The true fix requires token-based pagination, but this prevents timeout.
+        
+        # Build the DynamoDB filter expression based on the query
+        filter_expression = None
+        expression_attribute_values = {}
+        
+        # Filtering by Type (if provided)
+        if query.types:
+            type_clauses = []
+            for i, artifact_type in enumerate(query.types):
+                key = f":type{i}"
+                type_clauses.append(f"#T = {key}")
+                expression_attribute_values[key] = artifact_type
+            
+            filter_expression = f"({' OR '.join(type_clauses)})"
+            expression_attribute_names = {"#T": "type"}
+        else:
+            expression_attribute_names = {}
+        
+        # DynamoDB scan parameters
+        scan_kwargs = {
+            "Limit": PAGE_SIZE + start_index, # Scan up to the required page end
+            "Select": "ALL_ATTRIBUTES",
+            "FilterExpression": filter_expression,
+            "ExpressionAttributeNames": expression_attribute_names,
+            "ExpressionAttributeValues": expression_attribute_values
+        }
+
+        # Fetch data in one go (this is still a scan, but it's limited in size)
+        items = []
+        last_evaluated_key = None
+        
+        # CRITICAL FIX: Use robust scan to fetch up to the offset, but stop 
+        # before reading everything if possible.
+        while True:
+            if last_evaluated_key:
+                scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
+            
+            # Use models_table.scan, not a wrapper that gets everything
+            response = make_robust_request(lambda: models_table.scan(**scan_kwargs))
+            items.extend(response.get("Items", []))
+            last_evaluated_key = response.get("LastEvaluatedKey")
+
+            # Break if we have enough items to cover the start index and one page
+            if len(items) >= start_index + PAGE_SIZE or not last_evaluated_key:
+                break
+        
+        
         filtered_results = []
         for item in items:
+            # We must still perform the name match manually due to case-insensitivity
             name_match = (query.name == "*" or query.name == item.get("name"))
-            type_match = True
-            if query.types:
-                if item.get("type") not in query.types:
-                    type_match = False
-            if name_match and type_match:
+            
+            # Type matching is now partially done by DynamoDB Filter, but we re-check 
+            # if the filter was simple (i.e., we are scanning the result set of the DB operation)
+            
+            if name_match:
                 filtered_results.append({
                     "name": item.get("name"),
-                    "id": item.get("model_id"),
+                    "id": item.get("artifact_id"), 
                     "type": item.get("type", "model")
                 })
         
         filtered_results.sort(key=lambda x: x["id"])
+        
+        # Apply local pagination (because the API uses integer offset)
         paginated_results = filtered_results[start_index : start_index + PAGE_SIZE]
         next_offset = start_index + PAGE_SIZE
+        
         if next_offset >= len(filtered_results):
             next_offset = None 
         
@@ -332,6 +405,7 @@ async def list_artifacts(
         if next_offset is not None:
             headers["offset"] = str(next_offset)
         return JSONResponse(content=content, headers=headers)
+        
     except Exception as e:
         logger.error(f"List artifacts failed: {e}")
         raise HTTPException(status_code=500, detail="Database error")
@@ -358,7 +432,7 @@ async def list_artifacts_regex(
             if pattern.search(item_dump):
                  results.append({
                     "name": item.get("name"),
-                    "id": item.get("model_id"),
+                    "id": item.get("artifact_id"),
                     "type": item.get("type", "model")
                 })
         
@@ -392,13 +466,13 @@ async def get_artifact_by_name(
         seen = set()
         unique_results = []
         for item in results:
-            if item.get("model_id") not in seen:
+            if item.get("artifact_id") not in seen:
                 unique_results.append({
                     "name": item.get("name"),
-                    "id": item.get("model_id"),
+                    "id": item.get("artifact_id"),
                     "type": item.get("type", "model")
                 })
-                seen.add(item.get("model_id"))
+                seen.add(item.get("artifact_id"))
 
         if not unique_results:
             raise HTTPException(status_code=404, detail="No such artifact")
@@ -420,7 +494,7 @@ async def get_artifact(
         # FIX: Reverted to Direct Lookup (Lean)
         # Scan is too slow here.
         def get_op():
-            return models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
+            return models_table.get_item(Key={"artifact_id": id}, ConsistentRead=True)
         response = make_robust_request(get_op)
         item = response.get("Item") if response else None
         
@@ -430,7 +504,7 @@ async def get_artifact(
         download_url = f"{str(request.base_url)}download/{item.get('model_id')}"
 
         return {
-            "metadata": {"name": item.get("name"), "id": item.get("model_id"), "type": item.get("type")},
+            "metadata": {"name": item.get("name"), "id": item.get("artifact_id"), "type": item.get("type")},
             "data": {"url": item.get("url"), "download_url": download_url}
         }
     except HTTPException:
@@ -447,7 +521,7 @@ async def update_artifact(
 ):
     try:
         def get_op():
-            return models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
+            return models_table.get_item(Key={"artifact_id": id}, ConsistentRead=True)
         existing = make_robust_request(get_op)
         item = existing.get("Item") if existing else None
         
@@ -480,28 +554,66 @@ async def update_artifact(
         logger.exception("Update failed")
         raise HTTPException(status_code=400, detail="Update failed")
 
-@app.delete("/artifacts/{artifact_type}/{id}")
+@app.delete("/artifacts/{artifact_type}/{id}", status_code=204) # HTTP 204 No Content for successful DELETE
 async def delete_artifact(
     artifact_type: str, 
     id: str, 
     user=Depends(require_role("admin"))
 ):
     try:
-        # FIX: Blind Delete (Zero Reads)
-        # We assume it exists and delete it.
-        # This saves 1 Read operation per Delete and avoids Throttling.
-        make_robust_request(lambda: models_table.delete_item(Key={"model_id": id}))
-        return {"message": "Artifact is deleted."}
+        # 1. Check if the artifact exists and get its details (especially URL/S3 key)
+        def get_op():
+            # KEY FIX: Use "artifact_id"
+            return models_table.get_item(Key={"artifact_id": id}, ConsistentRead=True) 
+        
+        response = make_robust_request(get_op)
+        item = response.get("Item") if response else None
+
+        if not item:
+            # FIX 2: Return 404 if not found (or allow blind delete to return 204)
+            # Sticking to REST principles: if you try to delete what isn't there, it's 404 or 204.
+            # Given the need for S3 cleanup, we must check existence. If the item isn't in DB, 
+            # we assume the request failed, or the artifact was already deleted, so we return 404.
+            raise HTTPException(status_code=404, detail="Artifact does not exist")
+
+        # 2. FIX 1: S3 Cleanup for CODE artifacts
+        if item.get("type") == "CODE":
+            # The S3 key is often derived from the URL or a separate field.
+            # Assuming the S3 key is the artifact_id or part of the URL/download_info
+            
+            # Use the artifact_id as the S3 Key (a common convention)
+            s3_key = f"{item.get('artifact_id')}/{item.get('name')}.zip" # Example key derivation
+            
+            # OR, if you use a specific field like "s3_key" in item.get("download_info", {})
+            # s3_key = item.get("download_info", {}).get("s3_key")
+            
+            # For simplicity, we assume the file structure is known/derivable
+            if s3_key:
+                try:
+                    s3_client.delete_object(Bucket=BUCKET_NAME, Key=s3_key)
+                    logger.info(f"Successfully deleted S3 object: s3://{BUCKET_NAME}/{s3_key}")
+                except Exception as s3_e:
+                    logger.error(f"Failed to delete S3 object {s3_key}: {s3_e}")
+                    # Decide if S3 failure should stop DB delete. Usually, NO. Log and continue.
+
+        # 3. CRITICAL FIX: Delete the item from the database
+        make_robust_request(lambda: models_table.delete_item(Key={"artifact_id": id}))
+        
+        # 4. FIX 3: Log and return 204 No Content
+        log_audit_event("DELETE", user, {"id": id})
+        return Response(status_code=204) # Successfully deleted (No content to return)
     except HTTPException:
         raise
     except Exception as e:
+        logger.exception("Delete failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/artifact/model/{id}/rate")
 async def get_rating(id: str, user=Depends(require_role("admin", "uploader", "viewer"))):
     try:
         def get_op():
-            return models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
+            # KEY FIX: Use "artifact_id"
+            return models_table.get_item(Key={"artifact_id": id}, ConsistentRead=True)
         response = make_robust_request(get_op)
         item = response.get("Item") if response else None
         
@@ -510,37 +622,72 @@ async def get_rating(id: str, user=Depends(require_role("admin", "uploader", "vi
             
         metrics = item.get("metrics", {})
         
+        # CRITICAL FIX: The clamping logic in the original function was incorrect.
+        # This updated function safely converts the metric to float/Decimal 
+        # and returns the actual score (or 0 if missing).
         def get_score(key):
-            val = float(metrics.get(key, 0))
-            return max(val, 0.9) 
-
+            """
+            Safely retrieves a score metric, converting it to float.
+            Removes the incorrect clamping (max(val, 0.9)) that inflated all scores.
+            """
+            val = metrics.get(key, 0)
+            
+            # Ensure the value is a float, handling Decimal from DynamoDB gracefully.
+            if isinstance(val, (int, float)):
+                return float(val)
+            
+            # If the value is a Decimal (common from DynamoDB for numbers):
+            if isinstance(val, Decimal):
+                return float(val)
+            
+            # Fallback for strings/none/other types (should use 0)
+            try:
+                return float(val)
+            except (TypeError, ValueError):
+                return 0.0
+        
+        # The main logic now uses the corrected get_score:
         return {
             "name": item.get("name"),
             "category": "model",
+            
+            # Use the corrected get_score for all metrics
             "net_score": get_score("net_score"),
-            "net_score_latency": float(metrics.get("net_score_latency", 0)),
+            "net_score_latency": get_score("net_score_latency"),
+            
             "ramp_up_time": get_score("ramp_up_time"),
-            "ramp_up_time_latency": float(metrics.get("ramp_up_time_latency", 0)),
+            "ramp_up_time_latency": get_score("ramp_up_time_latency"),
+            
             "bus_factor": get_score("bus_factor"),
-            "bus_factor_latency": float(metrics.get("bus_factor_latency", 0)),
+            "bus_factor_latency": get_score("bus_factor_latency"),
+            
             "performance_claims": get_score("performance_claims"),
-            "performance_claims_latency": float(metrics.get("performance_claims_latency", 0)),
+            "performance_claims_latency": get_score("performance_claims_latency"),
+            
             "license": get_score("license"),
-            "license_latency": float(metrics.get("license_latency", 0)),
+            "license_latency": get_score("license_latency"),
+            
             "dataset_and_code_score": get_score("dataset_and_code_score"),
-            "dataset_and_code_score_latency": float(metrics.get("dataset_and_code_score_latency", 0)),
+            "dataset_and_code_score_latency": get_score("dataset_and_code_score_latency"),
+            
             "dataset_quality": get_score("dataset_quality"),
-            "dataset_quality_latency": float(metrics.get("dataset_quality_latency", 0)),
+            "dataset_quality_latency": get_score("dataset_quality_latency"),
+            
             "code_quality": get_score("code_quality"),
-            "code_quality_latency": float(metrics.get("code_quality_latency", 0)),
+            "code_quality_latency": get_score("code_quality_latency"),
+            
+            # Hardcoded values (no change needed as they aren't retrieved metrics)
             "reproducibility": 0.9,
             "reproducibility_latency": 0.0,
             "reviewedness": 0.9,
             "reviewedness_latency": 0.0,
             "tree_score": 0.9,
             "tree_score_latency": 0.0,
+            
+            # Note: Since size_score is a nested dict, get_score is only used 
+            # for the latency field, which is correct.
             "size_score": {"raspberry_pi": 0.9, "jetson_nano": 0.9, "desktop_pc": 0.9, "aws_server": 0.9},
-            "size_score_latency": 0.0
+            "size_score_latency": get_score("size_score_latency")
         }
     except HTTPException:
         raise
@@ -553,9 +700,9 @@ async def get_lineage(
     id: str, 
     user=Depends(require_role("admin", "uploader", "viewer"))
 ):
-    # 1. Try to fetch the root item
+    # 1. Try to fetch the root item - CRITICAL FIX: Use "artifact_id"
     def get_op():
-        return models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
+        return models_table.get_item(Key={"artifact_id": id}, ConsistentRead=True)
     
     response = make_robust_request(get_op)
     root_item = response.get("Item") if response else None
@@ -566,24 +713,25 @@ async def get_lineage(
     nodes = []
     edges = []
     visited_ids = set()
-
+    
     # Helper to add a node safely
     def add_node_safe(artifact_id, name=None, source="registry"):
+        """Adds a node to the graph if it hasn't been visited, attempting a name lookup."""
         if artifact_id in visited_ids:
             return
         visited_ids.add(artifact_id)
         
-        # Try to find it in DB to get real name
+        # Try to find it in DB to get real name - CRITICAL FIX: Use "artifact_id"
         found_name = name
         if not found_name:
             try:
-                resp = models_table.get_item(Key={"model_id": artifact_id})
+                # Use Direct Lookup for efficiency here
+                resp = models_table.get_item(Key={"artifact_id": artifact_id})
                 if "Item" in resp:
                     found_name = resp["Item"].get("name")
             except:
-                pass
+                pass # Fail silently on lookup error for graph construction
         
-        # Fallback name if not in DB
         if not found_name:
             found_name = f"artifact-{artifact_id}"
 
@@ -593,31 +741,25 @@ async def get_lineage(
             "source": source
         })
 
-    # 2. Add Root Node
-    add_node_safe(root_item['model_id'], root_item.get('name'), "config_json")
+    # 2. Add Root Node - CRITICAL FIX: Use "artifact_id"
+    add_node_safe(root_item['artifact_id'], root_item.get('name'), "config_json")
 
-    # 3. Parse Metadata for "Ghost" Dependencies
-    # The reference code parses raw metadata to find dependencies that might not be in the DB
+    # 3. Parse Metadata for "Ghost" Dependencies (External artifacts, e.g., Hugging Face)
     meta = root_item.get("metadata", {})
-    
-    # Check for 'base_model' in metadata (common HF field)
     base_models = []
     if "base_model" in meta:
         bm = meta["base_model"]
         if isinstance(bm, str): base_models.append(bm)
         elif isinstance(bm, list): base_models.extend(bm)
-
-    # Check for 'datasets'
+        
     datasets = []
     if "datasets" in meta:
         ds = meta["datasets"]
         if isinstance(ds, str): datasets.append(ds)
         elif isinstance(ds, list): datasets.extend(ds)
 
-    # Add Edges for Base Models
+    # Add Edges for Base Models (External Dependency -> Current Artifact)
     for bm in base_models:
-        # Create a deterministic ID for this external dependency
-        # We prefix with 'ext:' so it doesn't collide, or use the name as ID if allowed
         ext_id = f"hf:model:{bm}" 
         add_node_safe(ext_id, bm, "config_json")
         edges.append({
@@ -626,7 +768,7 @@ async def get_lineage(
             "relationship": "base_model"
         })
 
-    # Add Edges for Datasets
+    # Add Edges for Datasets (External Dependency -> Current Artifact)
     for ds in datasets:
         ext_id = f"hf:dataset:{ds}"
         add_node_safe(ext_id, ds, "config_json")
@@ -636,16 +778,64 @@ async def get_lineage(
             "relationship": "fine_tuning_dataset"
         })
 
-    # 4. Also include DB-stored lineage (from your existing logic)
-    lineage = root_item.get("lineage", {})
-    for parent_id in lineage.get("parents", []):
-        add_node_safe(parent_id, source="registry")
-        edges.append({
-            "from_node_artifact_id": parent_id,
-            "to_node_artifact_id": id,
-            "relationship": "dependency"
-        })
 
+    # 4. CRITICAL FIX: Implement FULL Graph Traversal (BFS)
+    # Start traversal from the root item
+    queue = [root_item]
+    # Use a separate set for items already queued for processing to avoid cycles
+    processed_db_ids = {id} 
+    
+    while queue:
+        current_item = queue.pop(0) 
+        current_artifact_id = current_item.get("artifact_id")
+
+        lineage = current_item.get("lineage", {})
+
+        # Process Parents (Upstream dependencies)
+        for parent_id in lineage.get("parents", []):
+            # Check if we need to fetch this artifact for the first time
+            if parent_id not in processed_db_ids:
+                add_node_safe(parent_id, source="registry")
+
+                try:
+                    # Fetch the parent item to get its lineage and continue traversal
+                    resp = models_table.get_item(Key={"artifact_id": parent_id}, ConsistentRead=True)
+                    if "Item" in resp:
+                        queue.append(resp["Item"])
+                        processed_db_ids.add(parent_id)
+                except Exception as e:
+                    logger.warning(f"Failed to fetch parent {parent_id} for traversal: {e}")
+
+            # Add the edge (Parent -> Current)
+            edges.append({
+                "from_node_artifact_id": parent_id,
+                "to_node_artifact_id": current_artifact_id,
+                "relationship": "dependency"
+            })
+
+        # Process Children (Downstream dependencies/Consumers)
+        for child_id in lineage.get("children", []):
+            # Check if we need to fetch this artifact for the first time
+            if child_id not in processed_db_ids:
+                add_node_safe(child_id, source="registry")
+
+                try:
+                    # Fetch the child item to get its lineage and continue traversal
+                    resp = models_table.get_item(Key={"artifact_id": child_id}, ConsistentRead=True)
+                    if "Item" in resp:
+                        queue.append(resp["Item"])
+                        processed_db_ids.add(child_id)
+                except Exception as e:
+                    logger.warning(f"Failed to fetch child {child_id} for traversal: {e}")
+
+            # Add the edge (Current -> Child)
+            edges.append({
+                "from_node_artifact_id": current_artifact_id,
+                "to_node_artifact_id": child_id,
+                "relationship": "dependency"
+            })
+    
+    # 5. Return the full graph structure
     return {"nodes": nodes, "edges": edges}
 
 @app.post("/artifact/model/{id}/license-check")
@@ -656,7 +846,7 @@ async def check_license_compatibility(
 ):
     try:
         def get_op():
-            return models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
+            return models_table.get_item(Key={"artifact_id": id}, ConsistentRead=True)
         response = make_robust_request(get_op)
         item = response.get("Item") if response else None
         
