@@ -272,95 +272,108 @@ from typing import Dict, Any
 logger = logging.getLogger(__name__)
 
 
-def compute_metrics_for_model(url: str) -> Dict[str, Any]:
+# In src/metrics.py
+
+def compute_metrics_for_model(url: str) -> dict:
     """
-    Compute metrics for an artifact given its URL.
-    
-    For now, returns placeholder metrics. In a full implementation,
-    this would fetch the repo/model and analyze it.
-    
-    Args:
-        url: GitHub or HuggingFace URL of the artifact
-        
-    Returns:
-        Dictionary of metrics with phase1 and phase2 nested structure
+    Given a Hugging Face model URL, fetch metadata and compute metrics.
     """
+    model_name = url.rstrip("/").split("/")[-1]
+    start = time.time()
+
+    # 1. Attempt to fetch real metadata from HF
     try:
-        # Extract name from URL
-        name = url.rstrip('/').split('/')[-1]
-        
-        # Return placeholder metrics that match the expected structure
-        return {
-            "name": name,
-            "phase1": {
-                "ramp_up_time": 0.5,
-                "bus_factor": 0.5,
-                "license_score": 0.5,
-                "performance_claims": 0.5,
-                "dataset_and_code_score": 0.5,
-                "dataset_quality": 0.5,
-                "code_quality": 0.5,
-                "size_score": {
-                    "raspberry_pi": 0.5,
-                    "jetson_nano": 0.5,
-                    "desktop_pc": 0.5,
-                    "aws_server": 0.5
-                },
-                "net_score": 0.5
-            },
-            "phase2": {
-                "reproducibility": 0.5,
-                "reviewedness": 0.5,
-                "treescale_score": 0.5,
-                "latency_ms": 0
-            },
-            # Also include flat structure for backward compatibility
-            "net_score": 0.5,
-            "ramp_up_time": 0.5,
-            "bus_factor": 0.5,
-            "license": 0.5,
-            "license_score": 0.5,
-            "performance_claims": 0.5,
-            "dataset_and_code_score": 0.5,
-            "dataset_quality": 0.5,
-            "code_quality": 0.5,
-            "net_score_latency": 0.0,
-            "ramp_up_time_latency": 0.0,
-            "bus_factor_latency": 0.0,
-            "license_latency": 0.0,
-            "performance_claims_latency": 0.0,
-            "dataset_and_code_score_latency": 0.0,
-            "dataset_quality_latency": 0.0,
-            "code_quality_latency": 0.0
+        # Use the HF API to get real details
+        api_url = f"{HF_API}{model_name}"
+        response = requests.get(api_url, timeout=5) # Short timeout for speed
+        if response.status_code == 200:
+            data = response.json()
+        else:
+            data = {}
+    except Exception:
+        data = {}
+
+    card_data = data.get("cardData", {})
+    # Fallback to empty string if not found
+    long_desc = str(card_data.get("long_description", "") or "")
+    tags = data.get("tags", [])
+
+    # --- METRIC 1: Ramp Up (Documentation Length) ---
+    # If description is long (>5000 chars), score is high.
+    ramp_up_time = min(len(long_desc) / 5000, 1.0)
+    if ramp_up_time < 0.2: ramp_up_time = 0.2 # Floor
+
+    # --- METRIC 2: Bus Factor (Files/Downloads) ---
+    # Use 'siblings' (file count) or 'downloads' as proxy
+    file_count = len(data.get("siblings", []))
+    bus_factor = min(file_count / 10, 1.0)
+    if bus_factor < 0.2: bus_factor = 0.2
+
+    # --- METRIC 3: License ---
+    # Explicit check
+    license_score = 1.0 if data.get("license") else 0.0
+
+    # --- METRIC 4: Performance Claims (Keyword Search) ---
+    # Look for "accuracy", "F1", "speed" in the README
+    perf_keywords = ["accuracy", "f1", "precision", "recall", "latency", "benchmark", "sota"]
+    performance_claims = 0.8 if any(k in long_desc.lower() for k in perf_keywords) else 0.3
+
+    # --- METRIC 5: Code/Dataset Quality (Tags) ---
+    has_framework = any(f in tags for f in ["pytorch", "tensorflow", "jax", "onnx"])
+    code_quality = 0.8 if has_framework else 0.4
+    
+    dataset_quality = 0.8 if "dataset" in tags else 0.4
+    
+    # Combined score
+    dataset_and_code_score = (code_quality + dataset_quality) / 2
+
+    # --- Size Score (Keep default) ---
+    size_score = {
+        "raspberry_pi": 0.6,
+        "jetson_nano": 0.6,
+        "desktop_pc": 0.9,
+        "aws_server": 1.0,
+    }
+
+    # --- Compute Net Score ---
+    net_score = compute_net_score({
+        "ramp_up_time": ramp_up_time,
+        "bus_factor": bus_factor,
+        "license": license_score,
+        "performance_claims": performance_claims,
+        "dataset_and_code_score": dataset_and_code_score,
+        "dataset_quality": dataset_quality,
+        "code_quality": code_quality,
+        "size_score": size_score
+    })
+
+    elapsed = int((time.time() - start) * 1000)
+
+    # Return structure matching your pydantic models
+    result = {
+        "name": model_name,
+        "category": "MODEL",
+        "net_score": net_score,
+        "ramp_up_time": ramp_up_time,
+        "bus_factor": bus_factor,
+        "performance_claims": performance_claims,
+        "license": license_score,
+        "dataset_and_code_score": dataset_and_code_score,
+        "dataset_quality": dataset_quality,
+        "code_quality": code_quality,
+        "size_score": size_score,
+        # Phase 2 Defaults
+        "phase2": {
+            "reproducibility": 0.5,
+            "reviewedness": 0.5,
+            "treescale_score": 0.5,
+            "latency_ms": elapsed
         }
-    except Exception as e:
-        logger.exception(f"Error computing metrics for {url}")
-        # Return minimal valid metrics on error
-        return {
-            "name": url.split('/')[-1] if url else "unknown",
-            "phase1": {
-                "ramp_up_time": 0.5,
-                "bus_factor": 0.5,
-                "license_score": 0.5,
-                "performance_claims": 0.5,
-                "dataset_and_code_score": 0.5,
-                "dataset_quality": 0.5,
-                "code_quality": 0.5,
-                "size_score": {
-                    "raspberry_pi": 0.5,
-                    "jetson_nano": 0.5,
-                    "desktop_pc": 0.5,
-                    "aws_server": 0.5
-                },
-                "net_score": 0.5
-            },
-            "phase2": {
-                "reproducibility": 0.5,
-                "reviewedness": 0.5,
-                "treescale_score": 0.5,
-                "latency_ms": 0
-            },
-            "net_score": 0.5,
-            "license": 0.5,
-            "license_score": 0.5
-        }
+    }
+
+    # Add latencies
+    for key in list(result.keys()):
+        if key not in ("name", "category", "size_score", "phase2"):
+            result[f"{key}_latency"] = elapsed
+
+    return result

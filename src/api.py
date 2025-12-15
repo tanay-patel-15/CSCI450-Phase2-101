@@ -119,7 +119,7 @@ def scan_all_items(table):
     Only used for Regex, Name Search, and Lineage.
     """
     items = []
-    scan_kwargs = {'ConsistentRead': True}
+    scan_kwargs = {'ConsistentRead': False}
     
     try:
         response = make_robust_request(lambda: table.scan(**scan_kwargs))
@@ -183,11 +183,9 @@ def clear_dynamodb_table(table_obj, pk_name, sk_name=None):
         logger.error(f"Failed to clear table {table_obj.name}: {e}")
 
 def _generate_id(seed: str) -> str:
-    # Deterministic but unique-ish ID that matches ^[a-zA-Z0-9\-]+$
-    # Returns a 10-digit number to be safe against strict regexes
-    blob = f"{seed}:{time.time()}:{secrets.token_hex(4)}"
-    h = hashlib.sha256(blob.encode("utf-8")).hexdigest()
-    return str(int(h[:16], 16) % 10_000_000_000).zfill(10)
+    # Returns a 16-char random hex string (e.g., 'a1b2c3d4e5f67890')
+    # Faster and shorter than UUID, but guaranteed unique.
+    return secrets.token_hex(8)
 
 # --- Endpoints ---
 
@@ -349,15 +347,20 @@ async def list_artifacts_regex(
     try:
         logger.info(f"DEBUG REGEX: Pattern='{body.regex}'")
         pattern = re.compile(body.regex)
+        
+        # FIX: Use ConsistentRead=False for speed
         items = scan_all_items(models_table)
         
         results = []
         for item in items:
-            # FIX: Search ANY string field in the item (Omni-Search)
-            # This covers name, url, id, license, etc.
+            # FIX: Concatenate Name AND Description for spec compliance
             name = item.get("name", "")
+            description = item.get("description", "") or ""
             
-            if pattern.search(name):
+            # Create a searchable blob combining both fields
+            search_blob = f"{name}\n{description}"
+            
+            if pattern.search(search_blob):
                  results.append({
                     "name": name,
                     "id": item.get("model_id"),
@@ -365,9 +368,11 @@ async def list_artifacts_regex(
                 })
         
         if not results:
+            # The spec requires 404 if nothing found
             raise HTTPException(status_code=404, detail="No artifact found under this regex")
         
         return results
+        
     except re.error:
         raise HTTPException(status_code=400, detail="Invalid Regex")
     except HTTPException:

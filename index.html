@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Trustworthy Model Registry Interface">
+    <title>Model Registry</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+            background: #fff;
+            color: #111;
+        }
+
+        header {
+            border-bottom: 2px solid #0b3d91;
+            padding-bottom: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        h1 {
+            color: #0b3d91;
+        }
+
+        .card {
+            border: 1px solid #ccc;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            border-radius: 8px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: bold;
+        }
+
+        input[type="text"],
+        input[type="file"] {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 1rem;
+            box-sizing: border-box;
+        }
+
+        button {
+            background: #0b3d91;
+            color: #fff;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+
+        button:hover {
+            background: #092a66;
+        }
+
+        #results {
+            margin-top: 1rem;
+        }
+
+        .error {
+            color: red;
+        }
+
+        .success {
+            color: green;
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <h1>Trustworthy Model Registry</h1>
+        <p>Group 101 - Security Track</p>
+    </header>
+
+    <main>
+        <section class="card" aria-labelledby="upload-header">
+            <h2 id="upload-header">Upload Artifact</h2>
+            <form id="uploadForm">
+                <label for="artifactType">Type:</label>
+                <select id="artifactType" style="margin-bottom: 1rem; padding: 5px;">
+                    <option value="model">Model</option>
+                    <option value="dataset">Dataset</option>
+                </select>
+
+                <label for="urlInput">Artifact URL (HuggingFace/GitHub):</label>
+                <input type="text" id="urlInput" placeholder="https://huggingface.co/..." required>
+
+                <button type="submit">Ingest & Upload</button>
+            </form>
+            <div id="uploadStatus"></div>
+        </section>
+
+        <section class="card" aria-labelledby="search-header">
+            <h2 id="search-header">Search Registry</h2>
+            <form id="searchForm">
+                <label for="searchQuery">Search by Name (Regex supported):</label>
+                <input type="text" id="searchQuery" placeholder=".*" value=".*">
+                <button type="submit">Search</button>
+            </form>
+            <div id="results"></div>
+        </section>
+    </main>
+
+    <script>
+        // REPLACE THIS WITH YOUR ACTUAL API GATEWAY URL
+        const API_URL = "https://2vzldb3pxd.execute-api.us-east-1.amazonaws.com/Prod";
+
+        // Upload Handler
+        document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const statusDiv = document.getElementById('uploadStatus');
+            const type = document.getElementById('artifactType').value;
+            const url = document.getElementById('urlInput').value;
+
+            statusDiv.innerHTML = "Processing...";
+
+            try {
+                // Determine if we use /artifact or /ingest based on type
+                // For simplicity in this demo, we assume we are POSTing to create
+                const res = await fetch(`${API_URL}/artifact/${type}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: url })
+                });
+
+                const data = await res.json();
+                if (res.ok) {
+                    statusDiv.innerHTML = `<p class="success">Success! ID: ${data.metadata.id}</p>`;
+                } else {
+                    statusDiv.innerHTML = `<p class="error">Error: ${data.detail || 'Unknown error'}</p>`;
+                }
+            } catch (err) {
+                statusDiv.innerHTML = `<p class="error">Network Error: ${err.message}</p>`;
+            }
+        });
+
+        // Search Handler
+        document.getElementById('searchForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const resultsDiv = document.getElementById('results');
+            const query = document.getElementById('searchQuery').value;
+
+            resultsDiv.innerHTML = "Searching...";
+
+            try {
+                // Using the Regex endpoint as it's the most flexible implemented feature
+                const res = await fetch(`${API_URL}/artifact/byRegEx`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ regex: query })
+                });
+
+                if (!res.ok) throw new Error("Search failed");
+
+                const data = await res.json();
+
+                if (data.length === 0) {
+                    resultsDiv.innerHTML = "<p>No results found.</p>";
+                    return;
+                }
+
+                let html = "<ul>";
+                data.forEach(item => {
+                    html += `<li>
+                        <strong>${item.name}</strong> (${item.type})<br>
+                        ID: ${item.id} <br>
+                        <a href="${API_URL}/download/${item.id}" target="_blank">Download</a>
+                    </li>`;
+                });
+                html += "</ul>";
+                resultsDiv.innerHTML = html;
+
+            } catch (err) {
+                resultsDiv.innerHTML = `<p class="error">Error: ${err.message}</p>`;
+            }
+        });
+    </script>
+</body>
+
+</html>
