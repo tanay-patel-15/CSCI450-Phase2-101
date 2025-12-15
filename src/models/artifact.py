@@ -12,11 +12,10 @@ All artifact types (MODEL, DATASET, CODE) share this base structure.
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Any, Optional, List
+from typing import Any, Optional
 from uuid import uuid4
 
 from pydantic import BaseModel, Field, field_validator, ConfigDict
-from .lineage import LineageInfo
 
 
 class ArtifactType(str, Enum):
@@ -152,13 +151,6 @@ class ArtifactCreate(ArtifactBase):
         default_factory=ArtifactMetadata,
         description="Optional metadata for the artifact"
     )
-    
-    # CRITICAL FIX: Add the parent_artifact_ids field. 
-    # This ensures the model includes the field that artifact_create_to_db relies on.
-    parent_artifact_ids: Optional[List[str]] = Field(
-        default=[],
-        description="List of parent artifact IDs for lineage tracking."
-    )
 
 
 class ArtifactRead(ArtifactBase):
@@ -195,7 +187,7 @@ class ArtifactRead(ArtifactBase):
         default=None,
         description="Artifact metrics (phase1 and phase2)"
     )
-    lineage: Optional[LineageInfo] = Field(
+    lineage: Optional[dict[str, Any]] = Field(
         default=None,
         description="Lineage information (parents and children)"
     )
@@ -354,7 +346,7 @@ def artifact_db_to_read(artifact_db: ArtifactDB) -> ArtifactRead:
         metadata=ArtifactMetadata(**artifact_db.metadata) if artifact_db.metadata else ArtifactMetadata(),
         download_info=DownloadInfo(**artifact_db.download_info) if artifact_db.download_info else DownloadInfo(),
         metrics=artifact_db.metrics,
-        lineage=LineageInfo.from_dict(artifact_db.lineage) if artifact_db.lineage else None,
+        lineage=artifact_db.lineage,
         license_info=artifact_db.license_info,
         cost=artifact_db.cost,
     )
@@ -387,7 +379,7 @@ def artifact_create_to_db(artifact_create: ArtifactCreate) -> ArtifactDB:
         metadata=metadata_dict,
         download_info={},
         metrics={"phase1": {}, "phase2": {}},
-        lineage={"parents": artifact_create.parent_artifact_ids, "children": []},
+        lineage={"parents": [], "children": []},
         license_info={},
         cost=0.0,
     )
