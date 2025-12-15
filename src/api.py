@@ -40,7 +40,7 @@ logger = logging.getLogger("api_logger")
 logger.setLevel(logging.INFO)
 
 # --- DEPLOYMENT MARKER ---
-logger.info("--- DEPLOYMENT VERSION: LEAN & FAST (Blind Deletes + Omni-Regex) ---")
+logger.info("--- DEPLOYMENT VERSION: FIXING METRICS & LINEAGE ---")
 # -------------------------
 
 # AWS Clients
@@ -119,6 +119,7 @@ def scan_all_items(table):
     Only used for Regex, Name Search, and Lineage.
     """
     items = []
+    # FIX: Use False to prevent timeouts on large scans
     scan_kwargs = {'ConsistentRead': False}
     
     try:
@@ -189,7 +190,6 @@ def _generate_id(seed: str) -> str:
 
 # --- Endpoints ---
 
-# --- ADD THIS ENDPOINT ---
 @app.get("/", response_class=HTMLResponse)
 async def root():
     return """<!doctype html>
@@ -250,9 +250,9 @@ async def create_artifact(
         metrics = compute_metrics_for_model(body.url)
         model_name = metrics.get("name") or body.url.split("/")[-1]
         
-        # --- FIXED: Use safe ID generator instead of uuid4 ---
+        # --- FIXED: Use safe ID generator ---
         artifact_id = _generate_id(body.url)
-        # ---------------------------------------------------
+        # ------------------------------------
 
         def check_existing():
             return models_table.get_item(Key={"model_id": artifact_id}, ConsistentRead=True)
@@ -349,13 +349,17 @@ async def list_artifacts_regex(
         
         results = []
         for item in items:
-            # FIX: Search ANY string field in the item (Omni-Search)
-            # This covers name, url, id, license, etc.
-            item_dump = str(item)
+            name = item.get("name", "")
+            # FIX 3: Search description AND README (metadata.long_description)
+            description = item.get("description", "") or ""
+            readme = str(item.get("metadata", {}).get("long_description", ""))
             
-            if pattern.search(item_dump):
+            # Combine all searchable text into a single blob
+            search_blob = f"{name} {description} {readme}"
+            
+            if pattern.search(search_blob):
                  results.append({
-                    "name": item.get("name"),
+                    "name": name,
                     "id": item.get("model_id"),
                     "type": item.get("type", "model")
                 })
@@ -415,8 +419,7 @@ async def get_artifact(
     user=Depends(require_role("admin", "uploader", "viewer"))
 ):
     try:
-        # FIX: Reverted to Direct Lookup (Lean)
-        # Scan is too slow here.
+        # Direct Lookup (Lean)
         def get_op():
             return models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
         response = make_robust_request(get_op)
@@ -478,8 +481,6 @@ async def update_artifact(
         logger.exception("Update failed")
         raise HTTPException(status_code=400, detail="Update failed")
 
-# In src/api.py
-
 @app.delete("/artifacts/{artifact_type}/{id}")
 async def delete_artifact(
     artifact_type: str, 
@@ -521,11 +522,11 @@ async def get_rating(id: str, user=Depends(require_role("admin", "uploader", "vi
             
         metrics = item.get("metrics", {})
         
-        # FIX: Do not floor at 0.9. Trust the DB.
+        # FIX 1: Return the ACTUAL score from the DB. Do NOT force it to 0.9.
         def get_score(key):
             return float(metrics.get(key, 0))
 
-        # Use .get() with defaults for Phase 2 metrics to prevent KeyErrors
+        # Use defaults for Phase 2 metrics
         phase2 = metrics.get("phase2", {})
         size = metrics.get("size_score", {})
 
@@ -549,7 +550,7 @@ async def get_rating(id: str, user=Depends(require_role("admin", "uploader", "vi
             "code_quality": get_score("code_quality"),
             "code_quality_latency": float(metrics.get("code_quality_latency", 0)),
             
-            # Read Phase 2 from DB structure, don't hardcode
+            # Read Phase 2
             "reproducibility": float(phase2.get("reproducibility", 0.5)),
             "reproducibility_latency": 0.0,
             "reviewedness": float(phase2.get("reviewedness", 0.5)),
@@ -557,7 +558,7 @@ async def get_rating(id: str, user=Depends(require_role("admin", "uploader", "vi
             "tree_score": float(phase2.get("treescale_score", 0.5)),
             "tree_score_latency": 0.0,
             
-            # Read Size from DB structure
+            # Read Size
             "size_score": size if size else {"raspberry_pi": 0.5, "jetson_nano": 0.5, "desktop_pc": 0.5, "aws_server": 0.5},
             "size_score_latency": 0.0
         }
@@ -634,7 +635,6 @@ async def get_lineage(
 
     # Add Edges for Base Models
     for bm in base_models:
-        # Create a deterministic ID for this external dependency
         ext_id = f"hf:model:{bm}" 
         add_node_safe(ext_id, bm, "config_json")
         edges.append({
@@ -663,9 +663,8 @@ async def get_lineage(
             "relationship": "dependency"
         })
 
-    # 5. FINAL INTEGRITY CHECK (This fixes the "Nodes Present" failure)
+    # 5. FIX 2: FINAL INTEGRITY CHECK (Add this right before return)
     # Ensure every ID mentioned in edges exists in the nodes list.
-    # If a node is missing (e.g. deleted but still referenced), add a ghost.
     node_ids = {n["artifact_id"] for n in nodes}
     
     for edge in edges:
