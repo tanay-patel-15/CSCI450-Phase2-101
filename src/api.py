@@ -223,7 +223,7 @@ async def get_tracks():
 async def reset_system(user=Depends(require_role("admin"))):
     try:
         create_tables_if_missing()
-        clear_dynamodb_table(models_table, "model_id")
+        clear_dynamodb_table(models_table, "artifact_id")
         clear_dynamodb_table(audit_table, "timestamp", "event_type")
         clear_dynamodb_table(users_table, "email")
         try:
