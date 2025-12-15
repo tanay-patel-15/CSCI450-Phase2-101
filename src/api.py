@@ -266,9 +266,11 @@ async def create_artifact(
         item = {
             "model_id": artifact_id,
             "name": model_name,
+            "version": body.version if hasattr(body, 'version') and body.version else "1.0.0",
             "type": artifact_type,
             "url": body.url,
             "metrics": metrics,
+            "metadata": metrics,
             "lineage": {"parents": [], "children": []},
             "license_info": {"license_id": metrics.get("license", "UNKNOWN")},
             "size": 100, 
@@ -346,18 +348,18 @@ async def list_artifacts_regex(
     
     try:
         logger.info(f"DEBUG REGEX: Pattern='{body.regex}'")
-        pattern = re.compile(body.regex, re.IGNORECASE)
+        pattern = re.compile(body.regex)
         items = scan_all_items(models_table)
         
         results = []
         for item in items:
             # FIX: Search ANY string field in the item (Omni-Search)
             # This covers name, url, id, license, etc.
-            item_dump = str(item)
+            name = item.get("name", "")
             
-            if pattern.search(item_dump):
+            if pattern.search(name):
                  results.append({
-                    "name": item.get("name"),
+                    "name": name,
                     "id": item.get("model_id"),
                     "type": item.get("type", "model")
                 })
@@ -376,6 +378,7 @@ async def list_artifacts_regex(
 @app.get("/artifact/byName/{name}")
 async def get_artifact_by_name(
     name: str,
+    version: Optional[str] = None,
     user=Depends(require_role("admin", "uploader", "viewer"))
 ):
     try:
@@ -384,21 +387,23 @@ async def get_artifact_by_name(
         
         results = []
         for item in items:
-            if item.get("name") == name:
-                results.append(item)
-            elif item.get("name", "").lower() == name.lower():
-                results.append(item)
-        
+            if item.get("name", "").lower() != name.lower():
+                continue
+            elif version and item.get("version") != version:
+                continue
+            results.append({
+                "name": item.get("name"),
+                "id": item.get("model_id"),
+                "type": item.get("type", "model"),
+                "version": item.get("version", "1.0.0")
+            })
+
         seen = set()
         unique_results = []
         for item in results:
-            if item.get("model_id") not in seen:
-                unique_results.append({
-                    "name": item.get("name"),
-                    "id": item.get("model_id"),
-                    "type": item.get("type", "model")
-                })
-                seen.add(item.get("model_id"))
+            if item["id"] not in seen:
+                unique_results.append(item)
+                seen.add(item["id"])
 
         if not unique_results:
             raise HTTPException(status_code=404, detail="No such artifact")
@@ -490,6 +495,7 @@ async def delete_artifact(
         # FIX: Blind Delete (Zero Reads)
         # We assume it exists and delete it.
         # This saves 1 Read operation per Delete and avoids Throttling.
+        logger.info(f"Deleting artifact: type={artifact_type}, id={id}")
         make_robust_request(lambda: models_table.delete_item(Key={"model_id": id}))
         return {"message": "Artifact is deleted."}
     except HTTPException:
@@ -512,7 +518,7 @@ async def get_rating(id: str, user=Depends(require_role("admin", "uploader", "vi
         
         def get_score(key):
             val = float(metrics.get(key, 0))
-            return max(val, 0.9) 
+            return max(0.0, min(1.0, val))
 
         return {
             "name": item.get("name"),
