@@ -422,8 +422,8 @@ async def get_artifact(
     user=Depends(require_role("admin", "uploader", "viewer"))
 ):
     try:
-        # FIX: Reverted to Direct Lookup (Lean)
-        # Scan is too slow here.
+        logger.info(f"GET artifact: type={artifact_type}, id={id}")
+        
         def get_op():
             return models_table.get_item(Key={"model_id": id}, ConsistentRead=True)
         response = make_robust_request(get_op)
@@ -432,15 +432,29 @@ async def get_artifact(
         if not item:
             raise HTTPException(status_code=404, detail="Artifact does not exist")
         
+        # Log what we found
+        logger.info(f"Found artifact: type={item.get('type')}, name={item.get('name')}")
+        
         download_url = f"{str(request.base_url)}download/{item.get('model_id')}"
 
-        return {
-            "metadata": {"name": item.get("name"), "id": item.get("model_id"), "type": item.get("type")},
-            "data": {"url": item.get("url"), "download_url": download_url}
+        result = {
+            "metadata": {
+                "name": item.get("name"),
+                "id": item.get("model_id"),
+                "type": item.get("type")  # Make sure this matches what was uploaded
+            },
+            "data": {
+                "url": item.get("url"),
+                "download_url": download_url
+            }
         }
+        
+        logger.info(f"Returning: metadata={result['metadata']}, data_keys={result['data'].keys()}")
+        return result
     except HTTPException:
         raise
     except Exception as e:
+        logger.exception(f"Get artifact error")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.put("/artifacts/{artifact_type}/{id}")
